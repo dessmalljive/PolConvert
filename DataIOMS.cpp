@@ -77,7 +77,7 @@ The DataIO.h header includes these many variables.
    bool *conjugate, *is1, *is2;
    bool *is1orig, *is2orig;
 
-   // Passed in and stored and not our problem otherwise
+   // Passed in and stored, and now very much our problem!
    ArrayGeometry *Geometry;
 
    // Not even used in DataIOSWIN so probably safe to ignore:
@@ -128,13 +128,13 @@ DataIOMS::DataIOMS(std::string msfn, int NLinAnt, int *LinAnts, double *Range, i
     doneFirst(false),
     doWriteCirc(doSolve),
     logFile(logF),
-    doConjugate(doConj),
+    doConjugate(doConj), // Not used in this class
     canPlot(false),
-    doParang(doPar),
-    isTwoLinear(false) {
-    success = true;
+    doParang(doPar), // Referred to but never set in this class
+    isTwoLinear(false) // Not used in this class
+{
 
-    
+    success = true;
     std::cerr << std::endl << "MS file name: " << msfn << std::endl;
     // Transcribe linAnts; somewhere they get one(1) added for AIPSness; we take it off again for CASAness
     std::cerr << "Linants: "; 
@@ -164,7 +164,6 @@ DataIOMS::DataIOMS(std::string msfn, int NLinAnt, int *LinAnts, double *Range, i
     }
 
     MSColumns msc(ms);
-    // FIXME: is this really the first day?
     day0 = floor(msc.time()(0)/86400.0) + 2400000.5;
 
     Double nRange0 = ((Range[0] + day0) - 2400000.5)*86400.;
@@ -248,7 +247,7 @@ bool DataIOMS::setCurrentIF(int i)
     currSPW = i;
     currRow = 0;
     nextRow = 0;
-    currAnt = 0;
+    currAntInd = 0;
     std::cerr << "DataIOMS::setCurrentIF currRow=" << currRow << std::endl;
     std::cerr << "Linants currently: ";
     for (auto a : linAnts) std::cerr << a << " ";
@@ -282,18 +281,17 @@ void DataIOMS::getFrequencies(double* output) {
         output[i] = *iter;
         i++;
     }
+    
+    std::cerr << "DataIOMS::getFrequencies: currSPW= " << currSPW << std::endl;
     std::cerr << "DataIOMS::getFrequencies: i= " << i << std::endl;
-
-    // memcpy(output, Freqvals[currFreq], Freqs[currFreq].Nchan*sizeof(double));
 }
-
 
 // NB: everything is a reference here; these are all the *return* values!
 bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool &conj, int &calField)
 {
 
     MSColumns msc(ms);
-    canPlot = false;
+    canPlot = true;
     currRow = nextRow;
     while (1) {
         if (!(currRow < ms.nrow())) {
@@ -320,20 +318,26 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
         // already were; in that case we just skip zero rows!
         JDTime = msc.time()(currRow);
         calField = msc.fieldId()(currRow); // Check!
-        bool lins[2];
         const Int ant1 = msc.antenna1()(currRow);
         const Int ant2 = msc.antenna2()(currRow);
 
         Bool lin1 = linAnts.find(ant1)!=linAnts.end();
         Bool lin2 = linAnts.find(ant2)!=linAnts.end();
         
-        if ((ant1 != ant2) && lin1 && lin2) {
-            isTwoLinear = true;
-            canPlot = false;
-        } else {
-            canPlot = true;
+        if ((ant1 != ant2) && lin1 && lin2 && currAntInd==0) {
+            antenna = ant1+1;
+            otherAnt = ant2+1;
+            conj = true;
+            // For next time round
+            nextRow = currRow+1;
+            currAntInd=0;
+            currConj = conj;
+            nmixed++;
+            return true;
+
         }
-        if (currAnt==0) {
+        // We handle the case that both are the same linear antenna in this branch
+        if (currAntInd==0) {
             if (lin1) {
                 // Return values must be AIPSed too!
                 antenna = ant1+1;
@@ -341,35 +345,32 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
                 conj = true;
                 // For next time round
                 nextRow = currRow;
-                currAnt=1;
-                // std::cerr << "Got ant1 = " << ant1 <<std::endl;
+                currAntInd=1;
                 currConj = conj;
                 nmixed++;
+                // std::cerr << "Got antennas (" << antenna << ", " << otherAnt << ") with currAntInd=" << currAntInd << std::endl;
                 return true;
-            }
-            else {
+            } else {
                 // Whether we found a match for ant1, we look at ant2 next.
-                currAnt=1;
+                currAntInd=1;
                 // Don't increment row or return!
             }
         }
-        // currAnt == 1
-        if (lin2) {
+        // currAntInd==1 from here on
+        if (lin2 && ant2 != ant1) {
             antenna = ant2+1;
             otherAnt = ant1+1;
             conj = false;
-            // And for when we come back:
-            // FIXME: I think this is wrong.
             nextRow = currRow+1;
-            currAnt = 0;
+            currAntInd = 0;
             currConj = conj;
             nmixed++;
+            // std::cerr << "Got antennas (" << antenna << ", " << otherAnt << ") with currAntInd=" << currAntInd << std::endl;
             return true;
-        }
-        else {
+        } else {
             // We've checked both antennas; now we advance to the next row and
             // look for the next SPW match.
-            currAnt = 0;
+            currAntInd = 0;
             currRow++;
         }
     }
@@ -382,11 +383,10 @@ bool DataIOMS::setCurrentMixedVis()
 {
     MSColumns msc(ms);
     IPosition s(bufferVis.shape());
-    // I would like to get the time, but digging the actual time out of the CASA format is a challenge. Can I think of another way?
+    // I would like to get the time, but digging the actual time out of the CASA format is a challenge.
+    // Can I think of another way?
     const Array<Complex>& oldRow(msc.data()(currRow));
     msc.correctedData()(currRow) = bufferVis;
-    // std::cerr << "DataIOMS::setCurrentMixedVis: set row " << currRow << std::endl;
-    // std::cerr << "Done setting row " << currRow << std::endl;
     bool isChanged = !allNear(oldRow, bufferVis, 1e-9);
     return true;
 }
@@ -396,173 +396,182 @@ int DataIOMS::getFileNumber() { return 0; }
 void DataIOMS::zeroWeight() {}
 
 // Modify the visibilities read by "getNextMixedVis" by the calibration matrix supplied
+// in Mvec
 void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool print,
                            int thisAnt, FILE *plotFile)
 {
     MSColumns msc(ms);
-    Matrix<Complex> currentVis = msc.data()(currRow);
+    const Matrix<Complex>& currentVis ( msc.data()(currRow));
     IPosition visShape(currentVis.shape());
     // std::cerr << "Shape is " << visShape << std::endl;
     bufferVis.resize(visShape);
     Matrix<Complex> zeros(visShape);
     zeros = 0;
     
-    // We didn't store the parallactic angles so we have to get them again.
-    double parAng[2];
-    double AuxPA1, AuxPA2;
 
-    // It turns out we need to store antennas, uvw and time to file
-    // below anyway.
     Int a1 = msc.antenna1()(currRow);
     Int a2 = msc.antenna2()(currRow);
 
     Bool lin1 = linAnts.find(a1)!=linAnts.end();
     Bool lin2 = linAnts.find(a2)!=linAnts.end();
-        
+    Bool bothLin = lin1 && lin2;
+    
+    const Double C = 299792458.0;
     Array<Double> uvw(msc.uvw()(currRow));
     double duvw[3];
     for (int i=0; i<3; i++) {
-        duvw[i] = uvw(IPosition(1, i));
+        duvw[i] = uvw(IPosition(1, i))/C; // Convert m to lightseconds
     }
-    double uvdist = (uvw(IPosition(1, 0))*uvw(IPosition(1, 0)) +
-                     uvw(IPosition(1, 1))*uvw(IPosition(1, 1)));
+    double uvdist = (duvw[0]*duvw[0] + duvw[1]*duvw[1]);
     Int souidx = msc.fieldId()(currRow);
     Double t = msc.time()(currRow);
+
+    // We didn't store the parallactic angles so we have to get them again.
+    double parAng[2];
+    double AuxPA1, AuxPA2;
     getParAng(souidx, a1, a2, duvw, t, AuxPA1, AuxPA2);
+    int aips1, aips2;
 
-    // If I actually knew C++ I could probably do better than this.
-    parAng[0] = AuxPA1;
-    parAng[1] = AuxPA2;
-
+    // Sometimes we have to flip antenna orderings
+    if (!currConj || bothLin) {
+        aips1 = a2+1;
+        aips2 = a1+1;
+        parAng[0] = AuxPA2;
+        parAng[1] = AuxPA1;
+    } else {
+        aips1 = a1+1;
+        aips2 = a2+1;
+        parAng[0] = AuxPA1;
+        parAng[1] = AuxPA2;
+    }
     if (print && canPlot) {
         int zero = 0;
         int pos = ftell(plotFile);
-        std::cerr << "DataIOMS a1=" << a1 << " a2=" << a2
-                  << " lin1=" << lin1 << " lin2=" << lin2 << endl;
-        std::cerr << "DataIOMS writing antennas " << a1+1 << " " << a2+1
-                  << " for time " << t << " at pos " << pos << " with currConj " << currConj
-                  << " currentRow " << currRow << " currSPW " << currSPW
-                  << std::endl;
+        if (false) {
+            std::cerr << "DataIOMS aips1=" << aips1 << " aips2=" << aips2
+                      << " lin1=" << lin1 << " lin2=" << lin2 << std::endl;
+            std::cerr << "parAng[0]=" << parAng[0] << " parang[1]=" << parAng[1] << std::endl;
+            std::cerr << "AuxPA1=" << AuxPA1 << " AuxPA2=" << AuxPA2 << std::endl;
+            std::cerr << "DataIOMS writing antennas " << a1+1 << " " << a2+1
+                      << " for time " << t << " at pos " << pos << " with currConj " << currConj
+                      << " currentRow " << currRow << " currSPW " << currSPW
+                      << std::endl;
+        }
         fwrite(&zero, sizeof(int), 1, plotFile);
         fwrite(&t, sizeof(double), 1, plotFile);
-        int aips1 = a1+1;
-        int aips2 = a2+1;
         fwrite(&aips1, sizeof(int), 1, plotFile);
         fwrite(&aips2, sizeof(int), 1, plotFile);
         fwrite(&parAng[0], sizeof(double), 1, plotFile);
         fwrite(&parAng[1], sizeof(double), 1, plotFile);
         fwrite(&uvdist, sizeof(double), 1, plotFile);
 
-        if (a1 == 1 && a2 == 12) {
-            std::cerr << "Angles for baseline 2-13 ";
-        }
         for (int k=0; k<Freqs[currSPW].Nchan; k++) {
             /* The default ordering of correlation pairs in FITS-IDI is (probably): RR,LL,RL,LR;
-               for Measurement Set the convention is RR, LL, RL, LR. */
+               for Measurement Set the convention is RR, RL, LR, LL. */
             // Visibility matrix:
             Matrix<Complex> e(IPosition(2,2,2));
-            Matrix<Complex> e0(IPosition(2,2,2));
-
             // Calibration Jones matrix
             Matrix<Complex> M(IPosition(2,2,2));
             // Matrix to store back in buffer
             Matrix<Complex> b(IPosition(2,2,2));
-            // Parallactic angle Jones matrix
-            Matrix<Complex> pa(IPosition(2,2,2));
-
             e = 0;
-            e0 = 0;
             M = 0;
             b = 0;
-            pa = 0; // I have trust issues
-
-            e(IPosition(2, 0, 0)) = currentVis(IPosition(2, 0, k));
-            e(IPosition(2, 1, 1)) = currentVis(IPosition(2, 1, k));
-            e(IPosition(2, 0, 1)) = currentVis(IPosition(2, 2, k));
-            e(IPosition(2, 1, 0)) = currentVis(IPosition(2, 3, k));
-
-
+            Matrix<Complex> e0(e);
             e0(IPosition(2, 0, 0)) = currentVis(IPosition(2, 0, k));
-            e0(IPosition(2, 1, 1)) = currentVis(IPosition(2, 1, k));
-            e0(IPosition(2, 0, 1)) = currentVis(IPosition(2, 2, k));
-            e0(IPosition(2, 1, 0)) = currentVis(IPosition(2, 3, k));
-
+            e0(IPosition(2, 0, 1)) = currentVis(IPosition(2, 1, k));
+            e0(IPosition(2, 1, 0)) = currentVis(IPosition(2, 2, k));
+            e0(IPosition(2, 1, 1)) = currentVis(IPosition(2, 3, k));
+            // This could also use some explaining! Maybe it's the AIPS/CASA sign
+            // convention thing...
+            e = conj(e0); 
             for (int i=0; i<2; i++) {
                 for (int j=0; j<2; j++) {
                     M(IPosition(2, i, j)) = Mvec[i][j][k];
                 }
             }
-            if (currConj) {
+            Matrix<Complex> e_out, M_out, b_out;
+
+            // Parallactic angle Jones matrix
+            Matrix<Complex> P0(IPosition(2,2,2)), P1(IPosition(2,2,2));
+            P0 = 0;
+            P1 = 0;
+            std::complex<double> ph0 = std::polar(1.0, AuxPA1);
+            P0(0, 0) = ph0;
+            P0(1, 1) = 1.0/ph0;
+            std::complex<double> ph1 = std::polar(1.0, AuxPA2);
+            P1(0, 0) = ph1;
+            P1(1, 1) = 1.0/ph1;
+            // Why would parallactic angles be -1e8 anyway?!
+            bool doParang1 = doParang && AuxPA1 > -1.e8;
+
+            if (bothLin) { // We still need to care about coreConj!
+                if (!currConj) {
+                    b = product(M, product(e, adjoint(M)));
+                    Matrix<Complex> e1=product(e, adjoint(M));
+                    // This is very unlikely to be right; it is also untested
+                    if (doParang1) { 
+                        b = product(P0, product(b, adjoint(P1)));
+                        e1 = product(e1, adjoint(P1));
+                    }
+                    b_out = b;
+                    e_out = e1; 
+                    M_out = M;
+                } else {
+                    // Left hand multiplication first:
+                    b = product(M, product(e, adjoint(M)));
+                    Matrix<Complex> e1=product(M, e);
+                    if (doParang1) {
+                        b = product(
+                            product(P0, b), adjoint(P1));
+                        e1 = product(P0, b);
+                    }
+                    b_out = adjoint(b);
+                    e_out = adjoint(e1); 
+                    M_out = adjoint(M);
+                }
+                
+            } else if (currConj) {
                 b = product(M, e);
-            } else {
-                M = adjoint(M);
-                b = product(e, M);
-            }
-            // Parallactic angle:
-            pa = 0;
-            int paind0, paind1;
-            if (currConj) {
-                paind0 = 0;
-                paind1 = 1;
-            } else {
-                paind0 = 1;
-                paind1 = 0;
-            }
-            pa(0, 0) = std::polar(1.0, parAng[paind0]);
-            pa(1, 1) = std::polar(1.0, -parAng[paind1]);
-            if (currConj) {
-                if (doParang && parAng[0]>-1.e8) {
-                    b = product(b, pa);
+                if (doParang1) {
+                    b = product(P0, b);
                 }
+                b_out = b;
+                e_out = e;
+                M_out = M;
             } else {
-                if (doParang && parAng[0]>-1.e8) {
-                    // Are we leaking memory when we do this?
-                    pa = adjoint(pa);
-                    b = product(pa, b);
+                b = product(e, adjoint(M));
+                if (doParang1) {
+                    b = product(b, adjoint(P1));
                 }
+                M_out = adjoint(M);
+                e_out = adjoint(e);
+                b_out = adjoint(b);
             }
+                
             // Now transcribe b back into bufferVis
+            // Note: this one *isn't* flipped for corrConj
             bufferVis(IPosition(2, 0, k)) = b(0, 0);
             bufferVis(IPosition(2, 1, k)) = b(1, 1);
             bufferVis(IPosition(2, 2, k)) = b(0, 1);
             bufferVis(IPosition(2, 3, k)) = b(1, 0);
-            if (!currConj) {
-                e = adjoint(e);
-                b = adjoint(b);
-                // We have already taken the adjoint of M above.
-            }
-            if (a1 == 1 && a2 == 12) {
-                
-                std::complex<float> c = currentVis(IPosition(2, 0, k));
-                std::cerr << arg(c) << " ";
-            }
             for (int i=0; i<2; i++) {
                 for (int j=0; j<2; j++) {
-                    fwrite(&e(IPosition(2, i, j)), sizeof(std::complex<float>), 1, plotFile);
+                    fwrite(&e_out(IPosition(2, i, j)), sizeof(std::complex<float>), 1, plotFile);
                 }
             }
             for (int i=0; i<2; i++) {
                 for (int j=0; j<2; j++) {
-                    fwrite(&b(IPosition(2, i, j)), sizeof(std::complex<float>), 1, plotFile);
+                    fwrite(&b_out(IPosition(2, i, j)), sizeof(std::complex<float>), 1, plotFile);
                 }
             }
             for (int i=0; i<2; i++) {
                 for (int j=0; j<2; j++) {
-                    fwrite(&M(IPosition(2, i, j)), sizeof(std::complex<float>), 1, plotFile);
+                    fwrite(&M_out(IPosition(2, i, j)), sizeof(std::complex<float>), 1, plotFile);
                 }
             }
         } // End of k loop
-        if (a1 == 1 && a2 == 12) {
-            std::cerr << std::endl;
-        }
-        if (isTwoLinear) {
-            // FIXME?
-        }
     }
-    // if (allNear(bufferVis, zeros, 1e-9)) {
-    //     std::cerr << "bufferVis zeroed!" << std::endl;
-    //     std::cerr << "parAng: " << parAng[0] << ", " << parAng[1] << std::endl;
-    // }
 }
 
 // Close all files.
@@ -613,24 +622,13 @@ void DataIOMS::saveCirculars() {
     int good = 0;
     for (casacore::rownr_t currRow=0; currRow<ms.nrow(); currRow++) {
         Double t = msc.time()(currRow);
-        /* if ((currRow % 10000) == 0) {
-            std::cerr << "Low " << low
-                      << " High " << high
-                      << " Good " << good
-                      << " Now " << t
-                      << " (Now - begin) " << t - doRange[0]
-                      << " (end - Now) " << t - doRange[1]
-                      << std::endl;
-        } */
         if (t < doRange[0]) { low++; continue; }
         if (t > doRange[1]) { high++; continue; }
-        good++;
-        Int a1 = msc.antenna1()(0);
-        Int a2 = msc.antenna2()(0);
+        Int a1 = msc.antenna1()(currRow);
+        Int a2 = msc.antenna2()(currRow);
         Bool lin1 = linAnts.find(a1)!=linAnts.end();
         Bool lin2 = linAnts.find(a2)!=linAnts.end();
         if (lin1 || lin2) {
-            std::cerr << "Bailing because linants" << std::endl;
             continue;
         }
         Int dd = msc.dataDescId()(currRow);
@@ -645,22 +643,23 @@ void DataIOMS::saveCirculars() {
             ifidx++;
         }
         if (!found) {
-            std::cerr << "Bailing because spw" << std::endl;
+        //     std::cerr << "Bailing because spw" << std::endl;
             continue;
         }
         Int souidx = msc.fieldId()(currRow);
-        /*
-        if (souidx != saveSource && saveSource >= 0) {
-            std::cerr << "Bailing because source" << std::endl;
-            continue;
-            } */
+        // FIXME: Do we really want to check source id?
+        // if (souidx != saveSource && saveSource >= 0) {
+        //    //std::cerr << "Bailing because source" << std::endl;
+        //     continue;
+        // } 
+        good++;
         ofstream& outfile(circFile[ifidx]);
+        const double C = 3e8;
         const Array<Double>& uvw = msc.uvw()(currRow);
         double duvw[3];
         for (int i=0; i<3; i++) {
-            duvw[i] = uvw(IPosition(1, i));
+            duvw[i] = uvw(IPosition(1, i))/C;
         }
-        std::cerr << "Actually writing" << std::endl;
         double AuxPA1, AuxPA2;
         getParAng(souidx, a1, a2, duvw, t, AuxPA1, AuxPA2);
         outfile.write(reinterpret_cast<char*>(&t), sizeof(double));
@@ -671,20 +670,25 @@ void DataIOMS::saveCirculars() {
         outfile.write(reinterpret_cast<char*>(&AuxPA1), sizeof(double));
         outfile.write(reinterpret_cast<char*>(&AuxPA2), sizeof(double));
             
-        Matrix<Complex> bufferVis = msc.data()(currRow);
+        const Matrix<Complex>& currentVis = msc.data()(currRow);
 
-        // Oh, what are the dimensions of Freqs?
         for (int j=0; j<Freqs[ispw].Nchan; j++){
             size_t sz = sizeof(std::complex<float>);
-            IPosition a11(3, 0, 0, j);
-            IPosition a22(3, 1, 0, j);
-            IPosition a12(3, 2, 0, j);
-            IPosition a21(3, 3, 0, j);
-            
-            outfile.write(reinterpret_cast<char*>(&bufferVis(a11)), sz);
-            outfile.write(reinterpret_cast<char*>(&bufferVis(a12)), sz);
-            outfile.write(reinterpret_cast<char*>(&bufferVis(a21)), sz);
-            outfile.write(reinterpret_cast<char*>(&bufferVis(a22)), sz);
+            IPosition a11(2, 0, j);
+            IPosition a12(2, 1, j);
+            IPosition a21(2, 2, j);
+            IPosition a22(2, 3, j);
+
+            // Do conjugates here!
+            Complex c11 = std::conj(currentVis(a11));
+            Complex c12 = std::conj(currentVis(a12));
+            Complex c21 = std::conj(currentVis(a21));
+            Complex c22 = std::conj(currentVis(a22));
+                        
+            outfile.write(reinterpret_cast<char*>(&c11), sz);
+            outfile.write(reinterpret_cast<char*>(&c12), sz);
+            outfile.write(reinterpret_cast<char*>(&c21), sz);
+            outfile.write(reinterpret_cast<char*>(&c22), sz);
         }
     }
     // CLOSE AUXILIARY BINARY FILES:
@@ -693,4 +697,5 @@ void DataIOMS::saveCirculars() {
         circFile[iif].close();
         iif++;
     }
+    std::cerr << "saveCircs good: " << good << std::endl;
 }

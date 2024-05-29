@@ -79,7 +79,7 @@ if True:
       tb = gentools(['tb'])[0]
   except Exception as ex:
       print('unable to load casa tools in python2\n\n')
-    raise ex
+      raise ex
  else:
   try:
       from casatools import ms as ms_casa
@@ -87,7 +87,7 @@ if True:
       tb = tb_casa()
   except Exception as ex:
       print('unable to load casa tools in python3\n\n')
-    raise ex
+      raise ex
 
 
 def polconvert(IDI='', OUTPUTIDI='', DiFXinput='', DiFXcalc='', doIF=[], linAntIdx=[1], 
@@ -375,11 +375,8 @@ calibrated phased arrays (i.e., phased ALMA).
        # Get the X-Y cross-phase gain:
         GDiff = Ggains[0,0,:]/Ggains[isT,0,:]  
 
-       # Get the polarization-independent gain:
+        # Get the polarization-independent gain:
         TMode = Ggains[0,0,:]*Ggains[isT,0,:]
-
-
-
         # Smooth them:
         for iant in allAnts:
             Mask2 = np.where(np.logical_and(Mask,Gants==iant))[0]

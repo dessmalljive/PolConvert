@@ -579,19 +579,6 @@ calibrated phased arrays (i.e., phased ALMA).
     plsub.set_ylim((-250,250))
     pl.savefig('%s_RE-REF_XYPHASES.png'%XY0)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Auxiliary function: unwrap phases for time interpolation
   def unwrap(phases, check=False):
 
@@ -788,10 +775,6 @@ calibrated phased arrays (i.e., phased ALMA).
   for elem in dterms:
     if type(elem) is not str:
       printError("Invalid format for dterms!\n Each element should be a string (the name of a calibration table)") 
-
-
-
-
 
   if len(calAPPTime) != 2:
     printError("Bad format for calAPPTime. Should be a list of 2 floats!")

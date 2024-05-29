@@ -86,13 +86,13 @@ class DataIO {
    int getNfreqs();
    int getNant();
 
-   int getNchan(int freqid);
-   long getMixedNvis();
+   virtual int getNchan(int freqid);
+   virtual long getMixedNvis();
    bool succeed();
 
    double getDay0();
 
-   void getFrequencies(double* Freqarray);
+   virtual void getFrequencies(double* Freqarray);
 
 // Compute parallactic angle.
   void getParAng(int sidx, int Ant1, int Ant2, double*UVW, double &MJD, double &P1, double &P2);
@@ -134,7 +134,10 @@ class DataIO {
 // Close all files.
    virtual void finish() = 0;
 
+   // small@jive.eu: There's no reason for the data members to be public, I think.
+   // Make them protected while I develop.
 
+protected:
 
    static const int MAXIF = 256;
    FreqSetup *Freqs;

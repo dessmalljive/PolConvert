@@ -77,7 +77,7 @@ private:
      casacore::Array<casacore::Complex> bufferVis;
      casacore::rownr_t currRow, nextRow;
      casacore::Int currSPW;
-     casacore::Int currAnt;
+     casacore::Int currAntInd;
      std::vector<casacore::Int> IFsToDo;
      bool doneFirst;
      bool doWriteCirc;
