@@ -153,6 +153,8 @@ DataIOMS::DataIOMS(std::string msfn, int NLinAnt, int *LinAnts, double *Range, i
     //currSPW(0) // Should we really not set this?!
     try {
         ms = MeasurementSet(msfn);
+        // I'm just going to assume we want it writeable all the time.
+        ms.reopenRW();
         std::cerr << "Opened the MS at least" << std::endl;
     } catch (casacore::TableNoFile t) {
         std::cout << "Measurement set " << msfn << " not found" << std::endl;
@@ -239,6 +241,8 @@ DataIOMS::DataIOMS(std::string msfn, int NLinAnt, int *LinAnts, double *Range, i
 DataIOMS::~DataIOMS() {
   delete[] NAV;
   delete[] Freqs;
+  
+    std::cerr << "Time for destruction time " << std::endl;
 }
 
 bool DataIOMS::setCurrentIF(int i)
@@ -382,12 +386,23 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
 bool DataIOMS::setCurrentMixedVis()
 {
     MSColumns msc(ms);
-    IPosition s(bufferVis.shape());
     // I would like to get the time, but digging the actual time out of the CASA format is a challenge.
     // Can I think of another way?
     const Array<Complex>& oldRow(msc.data()(currRow));
-    msc.correctedData()(currRow) = bufferVis;
-    bool isChanged = !allNear(oldRow, bufferVis, 1e-9);
+    msc.correctedData().put(currRow, bufferVis);
+    // bool isChanged = !allNear(oldRow, bufferVis, 1e-9);
+    // if ((currRow % 10000)==1) {
+
+    if (1) {
+        const Int dd = msc.dataDescId()(currRow);
+        const Int ant1 = msc.antenna1()(currRow);
+        const Int ant2 = msc.antenna2()(currRow);
+        const Int ispw = msc.dataDescription().spectralWindowId()(dd);
+        if (ispw==0 && ant1==2 && ant2==12) {
+            std::cerr << "Notably rare! Row " << currRow << " Before:"  << oldRow(IPosition(2, 0, 0)) << std::endl
+                      << " after: " << bufferVis(IPosition(2, 0, 0)) << std::endl;
+        }
+    }
     return true;
 }
 
@@ -403,7 +418,6 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
     MSColumns msc(ms);
     const Matrix<Complex>& currentVis ( msc.data()(currRow));
     IPosition visShape(currentVis.shape());
-    // std::cerr << "Shape is " << visShape << std::endl;
     bufferVis.resize(visShape);
     Matrix<Complex> zeros(visShape);
     zeros = 0;
@@ -444,7 +458,9 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
         parAng[0] = AuxPA1;
         parAng[1] = AuxPA2;
     }
-    if (print && canPlot) {
+
+    bool writeIt = (print && canPlot);
+    if (writeIt) {
         int zero = 0;
         int pos = ftell(plotFile);
         if (false) {
@@ -464,97 +480,115 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
         fwrite(&parAng[0], sizeof(double), 1, plotFile);
         fwrite(&parAng[1], sizeof(double), 1, plotFile);
         fwrite(&uvdist, sizeof(double), 1, plotFile);
-
-        for (int k=0; k<Freqs[currSPW].Nchan; k++) {
-            /* The default ordering of correlation pairs in FITS-IDI is (probably): RR,LL,RL,LR;
-               for Measurement Set the convention is RR, RL, LR, LL. */
-            // Visibility matrix:
-            Matrix<Complex> e(IPosition(2,2,2));
-            // Calibration Jones matrix
-            Matrix<Complex> M(IPosition(2,2,2));
-            // Matrix to store back in buffer
-            Matrix<Complex> b(IPosition(2,2,2));
-            e = 0;
-            M = 0;
-            b = 0;
-            Matrix<Complex> e0(e);
-            e0(IPosition(2, 0, 0)) = currentVis(IPosition(2, 0, k));
-            e0(IPosition(2, 0, 1)) = currentVis(IPosition(2, 1, k));
-            e0(IPosition(2, 1, 0)) = currentVis(IPosition(2, 2, k));
-            e0(IPosition(2, 1, 1)) = currentVis(IPosition(2, 3, k));
-            // This could also use some explaining! Maybe it's the AIPS/CASA sign
-            // convention thing...
-            e = conj(e0); 
-            for (int i=0; i<2; i++) {
-                for (int j=0; j<2; j++) {
-                    M(IPosition(2, i, j)) = Mvec[i][j][k];
-                }
+    }
+    for (int k=0; k<Freqs[currSPW].Nchan; k++) {
+        /* The default ordering of correlation pairs in FITS-IDI is (probably): RR,LL,RL,LR;
+           for Measurement Set the convention is RR, RL, LR, LL. */
+        // Visibility matrix:
+        Matrix<Complex> e(IPosition(2,2,2));
+        // Calibration Jones matrix
+        Matrix<Complex> M(IPosition(2,2,2));
+        // Matrix to store back in buffer
+        Matrix<Complex> b(IPosition(2,2,2));
+        e = 0;
+        M = 0;
+        b = 0;
+        Matrix<Complex> e0(e);
+        e0(IPosition(2, 0, 0)) = currentVis(IPosition(2, 0, k));
+        e0(IPosition(2, 0, 1)) = currentVis(IPosition(2, 1, k));
+        e0(IPosition(2, 1, 0)) = currentVis(IPosition(2, 2, k));
+        e0(IPosition(2, 1, 1)) = currentVis(IPosition(2, 3, k));
+        // This could also use some explaining! Maybe it's the AIPS/CASA sign
+        // convention thing...
+        e = conj(e0); 
+        for (int i=0; i<2; i++) {
+            for (int j=0; j<2; j++) {
+                M(IPosition(2, i, j)) = Mvec[i][j][k];
             }
-            Matrix<Complex> e_out, M_out, b_out;
+        }
+        Matrix<Complex> e_out, M_out, b_out;
+        // Parallactic angle Jones matrix
+        Matrix<Complex> P0(IPosition(2,2,2)), P1(IPosition(2,2,2));
+        P0 = 0;
+        P1 = 0;
+        std::complex<double> ph0 = std::polar(1.0, AuxPA1);
+        P0(0, 0) = ph0;
+        P0(1, 1) = 1.0/ph0;
+        std::complex<double> ph1 = std::polar(1.0, AuxPA2);
+        P1(0, 0) = ph1;
+        P1(1, 1) = 1.0/ph1;
+        // Why would parallactic angles be -1e8 anyway?!
+        bool doParang1 = doParang && AuxPA1 > -1.e8;
 
-            // Parallactic angle Jones matrix
-            Matrix<Complex> P0(IPosition(2,2,2)), P1(IPosition(2,2,2));
-            P0 = 0;
-            P1 = 0;
-            std::complex<double> ph0 = std::polar(1.0, AuxPA1);
-            P0(0, 0) = ph0;
-            P0(1, 1) = 1.0/ph0;
-            std::complex<double> ph1 = std::polar(1.0, AuxPA2);
-            P1(0, 0) = ph1;
-            P1(1, 1) = 1.0/ph1;
-            // Why would parallactic angles be -1e8 anyway?!
-            bool doParang1 = doParang && AuxPA1 > -1.e8;
-
-            if (bothLin) { // We still need to care about coreConj!
-                if (!currConj) {
-                    b = product(M, product(e, adjoint(M)));
-                    Matrix<Complex> e1=product(e, adjoint(M));
-                    // This is very unlikely to be right; it is also untested
-                    if (doParang1) { 
-                        b = product(P0, product(b, adjoint(P1)));
-                        e1 = product(e1, adjoint(P1));
-                    }
-                    b_out = b;
-                    e_out = e1; 
-                    M_out = M;
-                } else {
-                    // Left hand multiplication first:
-                    b = product(M, product(e, adjoint(M)));
-                    Matrix<Complex> e1=product(M, e);
-                    if (doParang1) {
-                        b = product(
-                            product(P0, b), adjoint(P1));
-                        e1 = product(P0, b);
-                    }
-                    b_out = adjoint(b);
-                    e_out = adjoint(e1); 
-                    M_out = adjoint(M);
-                }
-                
-            } else if (currConj) {
-                b = product(M, e);
-                if (doParang1) {
-                    b = product(P0, b);
+        if (bothLin) { // We still need to care about currConj!
+            if (!currConj) {
+                b = product(M, product(e, adjoint(M)));
+                Matrix<Complex> e1=product(e, adjoint(M));
+                if (doParang1) { 
+                    b = product(P0, product(b, adjoint(P1)));
+                    e1 = product(e1, adjoint(P1));
                 }
                 b_out = b;
-                e_out = e;
+                e_out = e1; 
                 M_out = M;
             } else {
-                b = product(e, adjoint(M));
+                // Left hand multiplication first:
+                b = product(M, product(e, adjoint(M)));
+                Matrix<Complex> e1=product(M, e);
                 if (doParang1) {
-                    b = product(b, adjoint(P1));
+                    b = product(
+                        product(P0, b), adjoint(P1));
+                    e1 = product(P0, b);
                 }
-                M_out = adjoint(M);
-                e_out = adjoint(e);
                 b_out = adjoint(b);
+                e_out = adjoint(e1); 
+                M_out = adjoint(M);
             }
                 
-            // Now transcribe b back into bufferVis
-            // Note: this one *isn't* flipped for corrConj
-            bufferVis(IPosition(2, 0, k)) = b(0, 0);
-            bufferVis(IPosition(2, 1, k)) = b(1, 1);
-            bufferVis(IPosition(2, 2, k)) = b(0, 1);
-            bufferVis(IPosition(2, 3, k)) = b(1, 0);
+        } else if (currConj) {
+            b = product(M, e);
+            if (doParang1) {
+                b = product(P0, b);
+            }
+            b_out = b;
+            e_out = e;
+            M_out = M;
+        } else {
+            b = product(e, adjoint(M));
+            if (doParang1) {
+                b = product(b, adjoint(P1));
+            }
+            M_out = adjoint(M);
+            e_out = adjoint(e);
+            b_out = adjoint(b);
+        }
+                
+        if (k == 10) {
+            const Int dd = msc.dataDescId()(currRow);
+            const Int ant1 = msc.antenna1()(currRow);
+            const Int ant2 = msc.antenna2()(currRow);
+            const Int ispw = msc.dataDescription().spectralWindowId()(dd);
+            
+            if (ispw==0 && ant1==2 && ant2==12) {
+                std::cerr << "For spw " << ispw << " 1baseline " << ant1 << "-" << ant2 << " M " << M << std::endl;
+                std::cerr << " b " << b << " e " << e << std::endl;
+            }
+        }
+
+        // Now transcribe b back into bufferVis
+        // Note: this one *isn't* flipped for corrConj
+
+        // small@jive.eu: The only time bufferVis is used in the MS
+        // version is in setCurrentMixedVis (which, as the name
+        // doesn't suggest, writes the corrected data out.  So
+        // surely maybe probably we should use b_out for this
+        // rather than b?
+        bufferVis(IPosition(2, 0, k)) = b_out(0, 0);
+        bufferVis(IPosition(2, 1, k)) = b_out(1, 1);
+        bufferVis(IPosition(2, 2, k)) = b_out(0, 1);
+        bufferVis(IPosition(2, 3, k)) = b_out(1, 0);
+
+        if (writeIt) {
             for (int i=0; i<2; i++) {
                 for (int j=0; j<2; j++) {
                     fwrite(&e_out(IPosition(2, i, j)), sizeof(std::complex<float>), 1, plotFile);
@@ -570,9 +604,10 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
                     fwrite(&M_out(IPosition(2, i, j)), sizeof(std::complex<float>), 1, plotFile);
                 }
             }
-        } // End of k loop
-    }
+        }
+    } // End of k loop
 }
+
 
 // Close all files.
 void DataIOMS::finish()

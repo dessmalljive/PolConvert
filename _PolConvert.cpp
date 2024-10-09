@@ -88,8 +88,6 @@
 #include <sstream> 
 
 
-
-
 // cribbed from SWIG machinery
 #if PY_MAJOR_VERSION >= 3
 #define PyClass_Check(obj) PyObject_IsInstance(obj, (PyObject *)&PyType_Type)
@@ -113,8 +111,6 @@
 #endif
 
 
-
-
 /* Docstrings */
 static char module_docstring[] =
     "This module provides an interface for PolConvert.";
@@ -122,8 +118,6 @@ static char PolConvert_docstring[] =
     "Converts mixed-polarization visibilities into pure circular-polarization basis";
 static char setPCMode_docstring[] =
     "Sets the running mode to either ALMA (true; the default) or non-ALMA (false).";
-
-
 
 /* Available functions */
 static PyObject *PolConvert(PyObject *self, PyObject *args);
@@ -136,8 +130,6 @@ static PyMethodDef module_methods[] = {
     {"setPCMode", setPCMode, METH_VARARGS, setPCMode_docstring},
     {NULL, NULL, 0, NULL}   /* terminated by list of NULLs, apparently */
 };
-
-
 
 bool PCMode;
 
@@ -197,21 +189,12 @@ static PyObject *setPCMode(PyObject *self, PyObject *args){
     }
     ret = Py_BuildValue("i",0);
     return ret;
-
-
 }
-
-
-
-
-
 
 //////////////////////////////////
 // MAIN FUNCTION: 
 static PyObject *PolConvert(PyObject *self, PyObject *args)
 {
-
-
     static const std::complex<float> oneOverSqrt2 = 0.7071067811;
     static const cplx32f Im = cplx32f(0.,1.);
 
@@ -368,7 +351,6 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
         fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
     }
 
-
 // return value if there is an error:
     ret = Py_BuildValue("i",1);
 
@@ -385,7 +367,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     sprintf(message,"Array sizes: NPGain = %i NPIF = %i\n", NPGain, NPIF);
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
     cplx32f ****PrioriGains = new cplx32f***[nSWINFiles]; 
-    for(k=0;k<nSWINFiles;k++){
+    for(k=0; k<nSWINFiles; k++){
         PrioriGains[k] = new cplx32f **[NPGain];
         for (i=0;i<NPGain;i++){
             PrioriGains[k][i] = new cplx32f*[NPIF];
@@ -394,8 +376,6 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
             }
         }
     }
-
-
 
 // Array and Observation Geometry:
     ArrayGeometry *Geometry = new ArrayGeometry;
@@ -454,8 +434,10 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
         }
     }
 
-    for (int s=0; s<Geometry->NtotAnt; s++) {
-        std::cerr << "Antenna " << s << " mount " << Geometry->Mount[s] << std::endl;
+    if (0) {
+        for (int s=0; s<Geometry->NtotAnt; s++) {
+            std::cerr << "Antenna " << s << " mount " << Geometry->Mount[s] << std::endl;
+        }
     }
             
     for (i=0; i<Geometry->NtotSou;i++){
@@ -464,10 +446,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
         Geometry->RA[i] = SouCoordRA[i];
     }
 
-
-
-
-// Read info for linear-polarization antennas:
+    // Read info for linear-polarization antennas:
     double *time0, *time1;
     long nASDMEntries;
     int *ASDMant, *ALMARef;
@@ -475,9 +454,9 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     long *nASDMtimes;
     Weighter *ALMAWeight;
 
-////////////////////////////////////////////////
-/////////////////////////////////
-/// SPECIFIC FOR ALMA:
+    ////////////////////////////////////////////////
+    /////////////////////////////////
+    /// SPECIFIC FOR ALMA:
     if (PCMode){
         time0 = (double *)PyArray_DATA(PyList_GetItem(asdmTimes,0));
         time1 = (double *)PyArray_DATA(PyList_GetItem(asdmTimes,1));
@@ -543,9 +522,8 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
             fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
         }
 
-
-// Arrays with gain information. If ALMA is not used, we set them to
-// summy values:
+        // Arrays with gain information. If ALMA is not used, we set them to
+        // dummy values:
         if (PCMode){
             ngainTabs[i] = (int)PyInt_AsLong(PyList_GetItem(ngain,i));
             kind[i] = new int[ngainTabs[i]];
@@ -564,14 +542,12 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
             nsumArr[i] = 1;
         }
     }
-//////////////////////////////////////////////
+    //////////////////////////////////////////////
 
-
-//////////////////////////////////////////////
-// READ CALIBRATION TABLES (ALMA CASE):
+    //////////////////////////////////////////////
+    // READ CALIBRATION TABLES (ALMA CASE):
 
     if (PCMode){
-
         for (i=0;i<nALMA;i++){
             nchanDt[i] = PyArray_DIM(PyList_GetItem(PyList_GetItem(dterms,i),0),0);
             dtfreqsArr[i] = (double *)PyArray_DATA(PyList_GetItem(PyList_GetItem(dterms,i),0));
@@ -631,16 +607,11 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 
     }
 
-
-
-
-// ALLOCATE MEMORY FOR CALIBRATION INSTANCES:
+    // ALLOCATE MEMORY FOR CALIBRATION INSTANCES:
     CalTable ***allgains = new CalTable**[nALMA];
     CalTable **alldterms = new CalTable*[nALMA];
 
-// CREATE CALIBRATION INSTANCES:  
-
- 
+    // CREATE CALIBRATION INSTANCES:  
     for (i=0; i<nALMA; i++){
         allgains[i] = new CalTable*[ngainTabs[i]];
         if (PCMode){
@@ -662,35 +633,27 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
             alldterms[i] = new CalTable(2,logFile);
             allgains[i][0] = new CalTable(0,logFile);
         }
-
     }
-
-
     fflush(logFile);
 
+    /////////////////////////////////
+    // READ VLBI DATA:
 
-
-
-/////////////////////////////////
-// READ VLBI DATA:
-
-
-// How many IFs do we convert?
+    // How many IFs do we convert?
     int nIFconv = (int) PyList_Size(doIF) ;
     bool doAll = false;
 
-// How many IFs do we plot?
+    // How many IFs do we plot?
     int nIFplot = (int) PyList_Size(plIF) ;
     int IFs2Plot[nIFplot];
     for (ii=0; ii<nIFplot; ii++) {
         IFs2Plot[ii] = (int)PyInt_AsLong(PyList_GetItem(plIF,ii)) - 1;
     }
 
-
-// If no IF list was given, convert all of them:
-//  if (nIFconv==0){nIFconv = DifXData->getNfreqs(); doAll=true;}
-
-// Which IFs do we convert?
+    // If no IF list was given, convert all of them:
+    //  if (nIFconv==0){nIFconv = DifXData->getNfreqs(); doAll=true;}
+    
+    // Which IFs do we convert?
     int IFs2Conv[nIFconv];
     for (ii=0; ii<nIFconv; ii++) {
         if (doAll){IFs2Conv[ii]=ii;} else {
@@ -705,6 +668,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 
 
     std::string msliteral("MS");
+    // This is not the way.
     if (msliteral==datamode) {
         sprintf(message,"\n\n Opening and preparing Measurement Set %s.\n", outputfits.c_str());
         fprintf(logFile, "%s", message); std::cout<<message; fflush(logFile);
@@ -712,7 +676,6 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
                                 Geometry, doParang, logFile);
         fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
     }
-    
     else if (isSWIN) {
         sprintf(message,"\n\n Opening and preparing SWIN files.\n");
         fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
@@ -732,13 +695,8 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
         ret = Py_BuildValue("i",-1);
         return ret;
     }
-
-
     sprintf(message,"\n\nFirst observing Julian day: %11.2f\n",DifXData->getDay0());
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
-
-
-
     int nnu = DifXData->getNfreqs();
     int ALMARefAnt = -1; // If no calAPP is used, do not look for any extra X-Y phase offset.
 
@@ -752,33 +710,23 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     sprintf(message,"\n The VLBI IFs have a maximum of %i channels\n",maxnchan);
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
 
-
-/////////////////////////////////
-
-
-
-
-/////////////////////////////////
-// ALLOCATE MEMORY FOR CALIBRATION MATRICES:
+    /////////////////////////////////
+    // ALLOCATE MEMORY FOR CALIBRATION MATRICES:
 
     double DifXFreqs[maxnchan];
 
-
-
-// Gains:
+    // Gains:
     std::complex<float> ***AnG[nALMA], ***AnDt[nALMA];
     bool *Weight[nALMA];
 
-// K matrix (beware: 3rd dimension of the matrix elements is now real/imag; not X/Y!):
+    // K matrix (beware: 3rd dimension of the matrix elements is now real/imag; not X/Y!):
     std::complex<float> **K[nALMA][2][2];
 
-// part of K matrix that is unlikely to change much with time (i.e., BP, D-terms, X/Y delay):
+    // part of K matrix that is unlikely to change much with time (i.e., BP, D-terms, X/Y delay):
     std::complex<float> **Kfrozen[nALMA][2][2]; 
 
-// Ktotal will be the calibration+conversion matrix (i.e., just multiply V by it, to get final V):
+    // Ktotal will be the calibration+conversion matrix (i.e., just multiply V by it, to get final V):
     std::complex<float> *Ktotal[nALMA][2][2];
-
-
 
     for (ij=0; ij<nALMA; ij++) {
         auxI = nsumArr[ij];
@@ -795,8 +743,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
             AnDt[ij][ii][0] = new std::complex<float>[maxnchan];
             AnDt[ij][ii][1] = new std::complex<float>[maxnchan];
         }
-
-// K matrix:
+        // K matrix:
         for (ii=0; ii<2; ii++) {
             for (ik=0; ik<2; ik++) {
                 K[ij][ii][ik] =  new std::complex<float> *[auxI];
@@ -868,13 +815,12 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     FILE **plotFile = new FILE*[nIFplot+nIFconv]();
     FILE *gainsFile = (FILE*)0;
 
-// Prepare plotting or solving files:
-//  In the ALMA case, IFs2Plot holds the subset of IFs to plot;
-//  in the non-ALMA case, we need to create all of them for solving.
+    // Prepare plotting or solving files:
+    //  In the ALMA case, IFs2Plot holds the subset of IFs to plot;
+    //  in the non-ALMA case, we need to create all of them for solving.
     int noI = -1;
-
-// Only generate these files if the plotting time range is within the
-// conversion time range:
+    // Only generate these files if the plotting time range is within the
+    // conversion time range:
     if (plRange[0]!= plRange[1] &&
         plRange[0]<=doRange[1] &&
         plRange[1]>=doRange[0]){
@@ -945,12 +891,6 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
         }
     }
 
-
-
-
-
-
-
     //////////////////////////////////////////////////////////
     ///////////////////////////////////
     // MAIN LOOP FOR CORRECTION (LOOP OVER IFs):
@@ -959,12 +899,14 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     // Start of iteration over IFs
     ////////////////////////////////////
 
+    // We now count across all IFs because that's what I care about
+    countNvis = 0;
+
     for (im=0; im<nIFconv; im++) {
 
         ii = IFs2Conv[im];
         int IFplot = -1;    // flags the no-plot case of ALMA mode
         char pltmsg[20];
-
 
         for (ij=0; ij<nIFplot; ij++){
             if (IFs2Plot[ij]==ii){IFplot=ij; break;}
@@ -984,8 +926,9 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
         if (!DifXData->setCurrentIF(ii)){
             sprintf(message,
                     "WARNING! DATA DO NOT HAVE SUCH AN IF!! WILL SKIP CONVERSION\n");  
-            fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);} 
-        else {    // IF is OK: the check of IF.
+            fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
+        } 
+        else { // IF is OK: the check of IF.
             bool foundData = false;
             // Get the frequencies of the current IF:
             DifXData->getFrequencies(DifXFreqs);
@@ -997,9 +940,15 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
                     allgains[ij][ik]->setMapping(nchans[ii],DifXFreqs);
                 }
             }
+            {
+                std::cout << "Checking almas" << std::endl;
+                for (i=0; i < nALMA; i++) {
+                    std::cout << almanums[i] << " ";
+                }
+                std::cout << std::endl << "That's the lot!" << std::endl;
+            }
+                        
             // Get the next visibility to correct:
-            countNvis = 0;
-
             // next mixed-vis indent level
             while (DifXData->getNextMixedVis(
                       currT, currAnt, otherAnt, toconj, currF)){
@@ -1020,10 +969,10 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
                     return ret;
                 }
                 // Do we have to correct this visibility?
-                //indent level for time range
+                // indent level for time range
                 if (currT>=doRange[0] && currT<=doRange[1]) {  // vis in time range?
                     foundData = true;
-                    //indent level within time range
+                    // indent level within time range
                     // Sanity check (if antenna is in the list of linear-pol antennas):
                     notinlist = true;
                     for (ij=0; ij<nALMA; ij++) {
@@ -1050,6 +999,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
                     currNant = nsumArr[currAntIdx] ;
                     // Find the ALMA antennas involved in the phasing:
                     if (verbose){
+                        std::cout << "Current ant " << currAnt << " other ant " << otherAnt << std::endl;
                         printf(" Doing vis %li - %.3f - %i\n", countNvis, currT, currNant);
                         fflush(stdout);
                     }
@@ -1435,23 +1385,25 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     sprintf(message,"\nDONE WITH plot and gain files!\n");
     fprintf(logFile,"%s",message); std::cout << message; fflush(logFile);
 
-// Close data file(s):
+    // Close data file(s):
     DifXData->finish();
-
     sprintf(message,"\nFinishing DifXData!\n");
+
+    // We're not allowed to call a destructor of abstract class DataIO
+    // delete DifXData;
+    // sprintf(message,"\nDESTRUC-TOR activated!\n");
+    
     fprintf(logFile,"%s",message); std::cout << message; fflush(logFile);
 
     std::cerr << "\ncountNvis " << countNvis << std::endl;;
 
-// (almost) END OF PROGRAM.
+    // (almost) END OF PROGRAM.
     std::cout << "\n";
     sprintf(message,"\nDONE WITH POLCONVERT!\n");
     fprintf(logFile,"%s",message); std::cout << message; fflush(logFile);
 
-// finished with no errors:
+    // finished with no errors:
     ret = Py_BuildValue("i",0);
-
-
 
     /////////////////////////////////////////////////
     // Free memory:
@@ -1579,10 +1531,6 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     PyErr_Clear();
     std::cout << "Returning with success" << std::endl;
     return ret;
-
-
-
-
 }
 
 

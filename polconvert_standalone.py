@@ -48,9 +48,6 @@
 #
 #
 
-from __future__ import absolute_import
-from __future__ import print_function
-
 import sys
 
 
@@ -203,6 +200,7 @@ def polconvert(
                 have alt-az mounts, then: mounts = {'YB':'NL'}
 
     """
+    print(f"Doing another polconvert of {IDI}?")
     if doIF == None: doIF = []
         
     if saveArgs:
@@ -1357,7 +1355,7 @@ def polconvert(
                 TOADD = XYadd[doant]
 
             if len(TOADD.keys()) > 0:
-                printMsg(f"XYadd: {XYadd}")
+                # printMsg(f"XYadd: {XYadd}")
                 printMsg(f"At TOADD {TOADD}")
                 for jid, j in enumerate(sorted(TOADD.keys())):
                     if type(TOADD[j]) in [list, np.ndarray]:
@@ -2227,7 +2225,7 @@ def polconvert(
                 "\n\n  doSolve can ONLY work IF the source was compiled with DO_SOLVE=True\n  PLEASE, RECOMPILE!\n\n"
             )
 
-    else:  # if doSolve >= 0.0:
+    else:  # if doSolve < 0.0:
 
         printMsg("\n\n  doSolve was not requested\n\n")
         CGains = {"aPrioriXYGain": PrioriGains}
@@ -2903,7 +2901,10 @@ def polconvert(
                 sub.errorbar(
                     MIXAMP[:, 0], MIXAMP[:, 7], MIXAMP[:, 8], linestyle="None", fmt="k"
                 )
-
+                print(f"fringeAmps[thisAnt]) {fringeAmps[thisAnt]}")
+                print(f"plotAnt {plotAnt} thisAnt {thisAnt}")
+                print(f"CONVAMP {CONVAMP}")
+                print(f" CONVAMP[:, 1] {CONVAMP[:, 1]}")
                 pl.xlabel("IF NUMBER")
                 pl.ylabel(r"AMP (CORR. $\times 10^3$)")
                 sub2 = fig.add_subplot(122, sharex=sub, sharey=sub)

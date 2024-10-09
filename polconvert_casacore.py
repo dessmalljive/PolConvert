@@ -1169,8 +1169,6 @@ calibrated phased arrays (i.e., phased ALMA).
                  nphtimes, antimes, refants,
                  asdmtimes, timerangesArr[int(spw)], isLinear]
     
-    # ALMAstuff = []
-
     ARGS = {'IDI':IDI, 'OUTPUTIDI':OUTPUTIDI, 'DiFXinput':DiFXinput, 'DiFXcalc':DiFXcalc, 
             'doIF':doIF, 'linAntIdx':linAntIdx, 'Range':Range, 'XYadd':XYadd, 'XYdel':XYdel, 
             'XYratio':XYratio, 'usePcal':usePcal, 'swapXY':swapXY, 'swapRL':swapRL, 
