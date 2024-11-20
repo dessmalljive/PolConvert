@@ -92,6 +92,7 @@ private:
      bool doConjugate, canPlot, doParang, isTwoLinear;
      casacore::MeasurementSet ms;
 
+     casacore::Array<casacore::Complex> TwoLinearVis;
      
      void saveCirculars(void);   
      

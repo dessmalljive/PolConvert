@@ -293,7 +293,6 @@ void DataIOMS::getFrequencies(double* output) {
 // NB: everything is a reference here; these are all the *return* values!
 bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool &conj, int &calField)
 {
-
     MSColumns msc(ms);
     canPlot = true;
     currRow = nextRow;
@@ -329,12 +328,18 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
         Bool lin2 = linAnts.find(ant2)!=linAnts.end();
         
         if ((ant1 != ant2) && lin1 && lin2 && currAntInd==0) {
+            cerr << "[getNextMixedVis] returning once from " << currRow << " for lin-lin " << endl;
+            canPlot = False;
+            isTwoLinear = True;
             antenna = ant1+1;
             otherAnt = ant2+1;
             conj = true;
             // For next time round
-            nextRow = currRow+1;
-            currAntInd=0;
+            // OK, here goes!
+            // We now take the view that we have to return from this row twice
+            // and let applyMatrix apply twice and generally have an interesting time
+            nextRow = currRow;
+            currAntInd=1;
             currConj = conj;
             nmixed++;
             return true;
@@ -343,7 +348,8 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
         // We handle the case that both are the same linear antenna in this branch
         if (currAntInd==0) {
             if (lin1) {
-                // Return values must be AIPSed too!
+                isTwoLinear = false; // Because we handled that case above and exited with currAntInd==1
+                cerr << "[getNextMixedVis] returning linear ant1 from "<< currRow << endl;
                 antenna = ant1+1;
                 otherAnt = ant2+1;
                 conj = true;
@@ -352,7 +358,6 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
                 currAntInd=1;
                 currConj = conj;
                 nmixed++;
-                // std::cerr << "Got antennas (" << antenna << ", " << otherAnt << ") with currAntInd=" << currAntInd << std::endl;
                 return true;
             } else {
                 // Whether we found a match for ant1, we look at ant2 next.
@@ -362,6 +367,7 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
         }
         // currAntInd==1 from here on
         if (lin2 && ant2 != ant1) {
+            cerr << "[getNextMixedVis] returning linear ant2 from "<< currRow << endl;
             antenna = ant2+1;
             otherAnt = ant1+1;
             conj = false;
@@ -369,7 +375,6 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
             currAntInd = 0;
             currConj = conj;
             nmixed++;
-            // std::cerr << "Got antennas (" << antenna << ", " << otherAnt << ") with currAntInd=" << currAntInd << std::endl;
             return true;
         } else {
             // We've checked both antennas; now we advance to the next row and
@@ -386,21 +391,24 @@ bool DataIOMS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bool
 bool DataIOMS::setCurrentMixedVis()
 {
     MSColumns msc(ms);
+
+    if (isTwoLinear && currConj) {
+        std::cerr << "First time through we just don't" << std::endl;
+    }
+    
     // I would like to get the time, but digging the actual time out of the CASA format is a challenge.
     // Can I think of another way?
     const Array<Complex>& oldRow(msc.data()(currRow));
     msc.correctedData().put(currRow, bufferVis);
-    // bool isChanged = !allNear(oldRow, bufferVis, 1e-9);
-    // if ((currRow % 10000)==1) {
-
     if (1) {
         const Int dd = msc.dataDescId()(currRow);
         const Int ant1 = msc.antenna1()(currRow);
         const Int ant2 = msc.antenna2()(currRow);
         const Int ispw = msc.dataDescription().spectralWindowId()(dd);
-        if (ispw==0 && ant1==2 && ant2==12) {
-            std::cerr << "Notably rare! Row " << currRow << " Before:"  << oldRow(IPosition(2, 0, 0)) << std::endl
-                      << " after: " << bufferVis(IPosition(2, 0, 0)) << std::endl;
+        if (ispw==0 && ant1==10 && ant2==12) {
+            std::cerr << "[setCurrentMixedVis] Row " << currRow
+                      << " Before:"  << oldRow(IPosition(3, 10, 0)) << std::endl
+                      << " after: "  << bufferVis(IPosition(3, 10, 0)) << std::endl;
         }
     }
     return true;
@@ -416,20 +424,17 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
                            int thisAnt, FILE *plotFile)
 {
     MSColumns msc(ms);
-    const Matrix<Complex>& currentVis ( msc.data()(currRow));
+    const Matrix<Complex>& currentVis (msc.data()(currRow));
     IPosition visShape(currentVis.shape());
+    // std::cerr << "bufferVis before " << bufferVis << std::endl;
     bufferVis.resize(visShape);
+    // std::cerr << "bufferVis after " << bufferVis << std::endl; 
     Matrix<Complex> zeros(visShape);
     zeros = 0;
     
-
     Int a1 = msc.antenna1()(currRow);
     Int a2 = msc.antenna2()(currRow);
 
-    Bool lin1 = linAnts.find(a1)!=linAnts.end();
-    Bool lin2 = linAnts.find(a2)!=linAnts.end();
-    Bool bothLin = lin1 && lin2;
-    
     const Double C = 299792458.0;
     Array<Double> uvw(msc.uvw()(currRow));
     double duvw[3];
@@ -446,8 +451,8 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
     getParAng(souidx, a1, a2, duvw, t, AuxPA1, AuxPA2);
     int aips1, aips2;
 
-    // Sometimes we have to flip antenna orderings
-    if (!currConj || bothLin) {
+    // Sometimes we have to flip antenna AIPS orderings
+    if (!currConj || isTwoLinear) {
         aips1 = a2+1;
         aips2 = a1+1;
         parAng[0] = AuxPA2;
@@ -458,21 +463,24 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
         parAng[0] = AuxPA1;
         parAng[1] = AuxPA2;
     }
-
-    bool writeIt = (print && canPlot);
+    if (isTwoLinear) {
+        std::cerr << "[ApplyMatrix] Both lin " << aips1 << " " << aips2
+                  << " swap " << swap << " print " << print
+                  << " currConj " << currConj 
+                  << " canPlot " << canPlot << std::endl;
+    }
+    // OK there are going to be some things in here that lack elegance
+    // But if we have a lin-lin combination then currConj is true the
+    // first time and false the second, while neither of swap or
+    // canPlot is actually set to anything useful in the MS version of
+    // the code. That's probably entirely my fault but I am going to
+    // start from where we are instead of going back to figure out
+    // better values for those.
+    bool firstOfBoth = (isTwoLinear && currConj);
+    bool secondOfBoth = (isTwoLinear && !currConj);
+    bool writeIt = (print && canPlot && (!firstOfBoth));
     if (writeIt) {
         int zero = 0;
-        int pos = ftell(plotFile);
-        if (false) {
-            std::cerr << "DataIOMS aips1=" << aips1 << " aips2=" << aips2
-                      << " lin1=" << lin1 << " lin2=" << lin2 << std::endl;
-            std::cerr << "parAng[0]=" << parAng[0] << " parang[1]=" << parAng[1] << std::endl;
-            std::cerr << "AuxPA1=" << AuxPA1 << " AuxPA2=" << AuxPA2 << std::endl;
-            std::cerr << "DataIOMS writing antennas " << a1+1 << " " << a2+1
-                      << " for time " << t << " at pos " << pos << " with currConj " << currConj
-                      << " currentRow " << currRow << " currSPW " << currSPW
-                      << std::endl;
-        }
         fwrite(&zero, sizeof(int), 1, plotFile);
         fwrite(&t, sizeof(double), 1, plotFile);
         fwrite(&aips1, sizeof(int), 1, plotFile);
@@ -494,13 +502,22 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
         M = 0;
         b = 0;
         Matrix<Complex> e0(e);
-        e0(IPosition(2, 0, 0)) = currentVis(IPosition(2, 0, k));
-        e0(IPosition(2, 0, 1)) = currentVis(IPosition(2, 1, k));
-        e0(IPosition(2, 1, 0)) = currentVis(IPosition(2, 2, k));
-        e0(IPosition(2, 1, 1)) = currentVis(IPosition(2, 3, k));
-        // This could also use some explaining! Maybe it's the AIPS/CASA sign
-        // convention thing...
-        e = conj(e0); 
+        if (!secondOfBoth) {
+            e0(IPosition(2, 0, 0)) = currentVis(IPosition(2, 0, k));
+            e0(IPosition(2, 0, 1)) = currentVis(IPosition(2, 1, k));
+            e0(IPosition(2, 1, 0)) = currentVis(IPosition(2, 2, k));
+            e0(IPosition(2, 1, 1)) = currentVis(IPosition(2, 3, k));
+            // The conjugation below also needs explaining! Maybe it's an AIPS/CASA sign
+            // convention thing?
+            e = conj(e0); 
+        } else {
+            // Assume we don't conjugate here
+            e(IPosition(2, 0, 0)) = bufferVis(IPosition(2, 0, k));
+            e(IPosition(2, 0, 1)) = bufferVis(IPosition(2, 1, k));
+            e(IPosition(2, 1, 0)) = bufferVis(IPosition(2, 2, k));
+            e(IPosition(2, 1, 1)) = bufferVis(IPosition(2, 3, k));
+        }
+           
         for (int i=0; i<2; i++) {
             for (int j=0; j<2; j++) {
                 M(IPosition(2, i, j)) = Mvec[i][j][k];
@@ -518,76 +535,71 @@ void DataIOMS::applyMatrix(std::complex<float> *Mvec[2][2], bool swap, bool prin
         P1(0, 0) = ph1;
         P1(1, 1) = 1.0/ph1;
         // Why would parallactic angles be -1e8 anyway?!
-        bool doParang1 = doParang && AuxPA1 > -1.e8;
-
-        if (bothLin) { // We still need to care about currConj!
-            if (!currConj) {
-                b = product(M, product(e, adjoint(M)));
-                Matrix<Complex> e1=product(e, adjoint(M));
-                if (doParang1) { 
-                    b = product(P0, product(b, adjoint(P1)));
-                    e1 = product(e1, adjoint(P1));
-                }
-                b_out = b;
-                e_out = e1; 
-                M_out = M;
-            } else {
-                // Left hand multiplication first:
-                b = product(M, product(e, adjoint(M)));
-                Matrix<Complex> e1=product(M, e);
-                if (doParang1) {
-                    b = product(
-                        product(P0, b), adjoint(P1));
-                    e1 = product(P0, b);
-                }
-                b_out = adjoint(b);
-                e_out = adjoint(e1); 
-                M_out = adjoint(M);
-            }
-                
-        } else if (currConj) {
+        bool doParang0 = doParang && AuxPA1 > -1.e8;
+        bool doParang1 = doParang && AuxPA2 > -1.e8;
+        if (currConj) {
             b = product(M, e);
-            if (doParang1) {
+            if (doParang0) {
                 b = product(P0, b);
             }
             b_out = b;
             e_out = e;
             M_out = M;
-        } else {
+        } else { // !currConj
             b = product(e, adjoint(M));
             if (doParang1) {
                 b = product(b, adjoint(P1));
             }
-            M_out = adjoint(M);
-            e_out = adjoint(e);
             b_out = adjoint(b);
+            e_out = adjoint(e);
+            M_out = adjoint(M);
         }
                 
+
+        // small@jive.eu: bufferVis is used for output in 
+        // setCurrentMixedVis. Comparing with AIPS shows we need the
+        // adjoint of b for this. Not currently sure why.
+        Matrix<Complex> b_adjoint = adjoint(b);
+
+        // This is a knob we can twiddle
+        if (!firstOfBoth) {
+            bufferVis(IPosition(2, 0, k)) = b_adjoint(0, 0);
+            bufferVis(IPosition(2, 1, k)) = b_adjoint(0, 1);
+            bufferVis(IPosition(2, 2, k)) = b_adjoint(1, 0);
+            bufferVis(IPosition(2, 3, k)) = b_adjoint(1, 1);
+        } else {
+            bufferVis(IPosition(2, 0, k)) = b(0, 0);
+            bufferVis(IPosition(2, 1, k)) = b(0, 1);
+            bufferVis(IPosition(2, 2, k)) = b(1, 0);
+            bufferVis(IPosition(2, 3, k)) = b(1, 1);
+        }
+            
         if (k == 10) {
             const Int dd = msc.dataDescId()(currRow);
             const Int ant1 = msc.antenna1()(currRow);
             const Int ant2 = msc.antenna2()(currRow);
             const Int ispw = msc.dataDescription().spectralWindowId()(dd);
             
-            if (ispw==0 && ant1==2 && ant2==12) {
-                std::cerr << "For spw " << ispw << " 1baseline " << ant1 << "-" << ant2 << " M " << M << std::endl;
-                std::cerr << " b " << b << " e " << e << std::endl;
+            if (ispw==0 && ((ant1==10 && ant2==12) ||
+                            (ant1==12 && ant2==10))) {
+                std::cerr << "[applyMatrix] linAnts ";
+                for (Int const& a : linAnts) { std::cerr << a << ' '; }
+                std::cerr << std::endl;
+                std::cerr <<" isTwoLinear " << isTwoLinear << std::endl;
+                std::cerr << "[applyMatrix] Row " << currRow << " spw " << ispw << " currConj " << currConj 
+                          << " baseline " << ant1 << "-" << ant2 << " M " << M << std::endl;
+                std::cerr << " b " << b << " e " << e << " doParang1 " << doParang1 << std::endl;
+                std::cerr << "b_adjoint " << b_adjoint << endl;
+                std::cerr << "bufferVis() ";
+                for (int i=0; i<4; i++) {
+                    std::cerr << bufferVis(IPosition(2, i, k)) << " ";
+                }
+                std::cerr << std::endl;
+                    
             }
         }
 
-        // Now transcribe b back into bufferVis
-        // Note: this one *isn't* flipped for corrConj
-
-        // small@jive.eu: The only time bufferVis is used in the MS
-        // version is in setCurrentMixedVis (which, as the name
-        // doesn't suggest, writes the corrected data out.  So
-        // surely maybe probably we should use b_out for this
-        // rather than b?
-        bufferVis(IPosition(2, 0, k)) = b_out(0, 0);
-        bufferVis(IPosition(2, 1, k)) = b_out(1, 1);
-        bufferVis(IPosition(2, 2, k)) = b_out(0, 1);
-        bufferVis(IPosition(2, 3, k)) = b_out(1, 0);
-
+        
         if (writeIt) {
             for (int i=0; i<2; i++) {
                 for (int j=0; j<2; j++) {
@@ -625,7 +637,7 @@ void DataIOMS::saveCirculars() {
     
     char buffer[256];
     MSColumns msc(ms);
-    Int saveSource = 1; // FIXME!
+    // Int saveSource = 1; // FIXME!
     if (!doWriteCirc) {
         std::cerr << "Not writing circulars this time?" << std::endl;
         return;
