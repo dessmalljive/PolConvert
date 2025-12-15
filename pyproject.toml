@@ -1,0 +1,15 @@
+# pyproject.toml
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polconvert-casacore"  # as it would appear on PyPI
+version = "0.1"
+
+[tool.setuptools.packages.find]
+where = ["./PolConvert"]
+
+# We can either do this here or in setup.py,
+# and we already have setup.py so we go with that
+# [tool.setuptools]

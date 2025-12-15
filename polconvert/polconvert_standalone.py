@@ -48,7 +48,7 @@
 #
 #
 
-import sys
+import os, sys
 
 
 __version__ = "2.0.4  "  # 7 characters
@@ -58,50 +58,9 @@ date = "Dec 5, 2022"
 ################
 # Import all necessary modules.
 
-########
-# Execute twice, to avoid the silly (and harmless)
-# error regarding the different API versions of
-# numpy between the local system and CASA:
-import os, sys
+import PolConvert.polconvert as PC
 
-try:
-    mypath = os.path.dirname(__file__)
-    sys.path.append(mypath)
-    import _PolConvert as PC
-    import apparent
-    goodclib = True
-    print("\nC++ shared library loaded successfully (first try)\n")
-except Exception as e:
-    goodclib = False
-    print("\n There has been an error related to the numpy")
-    print(" API version used by CASA. This is related to PolConvert")
-    print(" (which uses the API version of your system) and should")
-    print(" be *harmless*.\n")
-    print(f"Actual error: {e}")
-
-
-if not goodclib:
-    try:
-        import _PolConvert as PC
-
-        goodclib = True
-        print("\nC++ shared library loaded successfully (2nd try)\n")
-    except:
-        goodclib = False
-        print("\nNo, the shared library did not load successfully\n")
-#############
-
-if not goodclib:
-    try:
-        import _PolConvert as PC
-
-        goodclib = True
-        print("\nC++ shared library loaded successfully (3rd try)\n")
-    except:
-        goodclib = False
-        print("\nNo, the shared library still did not load successfully\n")
-#############
-### ... and we could keep on trying! (with an infinite loop! XD ).
+goodclib = True
 
 
 import os, sys, shutil, re
@@ -257,7 +216,7 @@ def polconvert(
     logName = "PolConvert%s.log" % plotSuffix
 
 
-## Codes for antenna mounts:
+    ## Codes for antenna mounts:
     MntCodes = {'AZ':0, 'EQ':1, 'OB':2, 'XY':3, 'NR':4, 'NL':5}
 
 
@@ -305,13 +264,13 @@ def polconvert(
     tic = time.time()
 
     greet = """ 
-  ##########################################################################'
-  # POLCONVERT --  version.                                                #'
-  #       Please, add the POLCONVERT reference to your publications:       #'
-  #                                                                        #'
-  #          Marti-Vidal, Roy, Conway & Zensus 2016, A&A, 587, 143         #'
-  #                                                                        #'
-  ##########################################################################'
+  ##########################################################################
+  # POLCONVERT --  version.                                                #
+  #       Please, add the POLCONVERT reference to your publications:       #
+  #                                                                        #
+  #          Marti-Vidal, Roy, Conway & Zensus 2016, A&A, 587, 143         #
+  #                                                                        #
+  ##########################################################################
   """
 
     greetings = re.sub("version", __version__, greet)
@@ -421,7 +380,7 @@ def polconvert(
         printError("ERROR! IDI file (or SWIN folder) does not exist!")
 
     if type(OUTPUTIDI) is not str:
-        printError("ERROR! OUTPUTIDI should be a string!")
+        printError(f"ERROR! OUTPUTIDI should be a string; got {OUTPUTIDI}")
 
     if type(plotIF) is int:
         if plotIF > 0:
@@ -534,7 +493,6 @@ def polconvert(
                         "SOURCE %s AT RA: %.8f rad, DEC: %.8f rad"
                         % (SNAM, calcsoucoords[0][-1], calcsoucoords[1][-1])
                     )
-
             antcoords = np.array(antcoords, dtype=np.float64, order="C")
             antmounts = np.array(antmounts, order="C")
             calcsoucoords[0] = np.array(calcsoucoords[0], dtype=np.float64, order="C")
@@ -554,8 +512,7 @@ def polconvert(
         else:
             printMsg("There are %i antennas." % len(antmounts))
 
-
-## Read antenna mounts from dictionary:
+        ## Read antenna mounts from dictionary:
         for antName in mounts.keys():
             if antName in antcodes:
                 if mounts[antName] not in MntCodes.keys():
@@ -565,7 +522,6 @@ def polconvert(
                     mnt = MntCodes[code]
                     antmounts[antcodes.index(antName)] = int(mnt)
                     printMsg("Setting mount %s (%i) to antenna %s"%(code,mnt,antName))
-
 
     elif mode=='IDI':
         # Currently, PCALs are not supported for FITS-IDI:
@@ -616,22 +572,18 @@ def polconvert(
 
             ffile.close()
 
-            # THESE LINES FAIL IF ORBPARM IS PRESENT IN ARRAY GEOMETRY!
-            import _getAntInfo as gA
-
-            success = gA.getAntInfo(IDI)
+            success = PC.getAntInfo(IDI)
             if success != 0:
                 printError("ERROR GETTING FITS-IDI METADATA! ERR: %i" % success)
             else:
-                antcoords = gA.getCoords()
-                antmounts = gA.getMounts()
-        # FIXME: need a way to find antenna codes if above fails:
-        #        antcodes = ['%02i'%i for i in range(1,len(antmounts)+1)]
+                antcoords = PC.getCoords()
+                antmounts = PC.getMounts()
+                # FIXME: need a way to find antenna codes if above fails:
+                # antcodes = ['%02i'%i for i in range(1,len(antmounts)+1)]
         except:
             printMsg(
                 "WARNING! This FITS-IDI file has missing information!\nPolConvert may not calibrate properly."
             )
-    ######
 
     ######
     # IF THIS IS A SWIN DATASET, READ THE INPUT FILE INTO
@@ -744,13 +696,19 @@ def polconvert(
         fitsf.close()
 
     elif mode=='MS':
+        import PolConvert.apparent as apparent
         # Possible MS antenna mount types:
         # alt-az, equatorial, X-Y, orbiting, bizarre 
 
         # The encodings we need here:
         # MntCodes = {'AZ':0, 'EQ':1, 'OB':2, 'XY':3, 'NR':4, 'NL':5}
         MSMountCodes =   {
-            'ALT-AZ' : 0, 
+            'ALT-AZ' : 0,
+            # FIXME! 
+            'ALT-AZ-NASMYTH-RH' : 4,
+            'ALT-AZ+NASMYTH-R' : 4, 
+            'ALT-AZ-NASMYTH-LH' : 5,
+            'ALT-AZ+NASMYTH-L' : 5, 
             'EQUATORIAL': 1,
             'ORBITING' : 2,
             'X-Y' : 3,
@@ -762,7 +720,7 @@ def polconvert(
         import casacore.tables
         ant_t = casacore.tables.table(f"{msfn}::ANTENNA")
         antcodes = ant_t.getcol('STATION')
-        antmounts_s = ant_t.getcol('MOUNT')
+        antmounts_s = [s.upper() for s in ant_t.getcol('MOUNT')]
         antmounts = [MSMountCodes[s] for s in antmounts_s]
         antmounts = np.array(antmounts, order="C", dtype=np.int32)
         # np.array(FlagBas1, order="C", dtype=np.int32)        
@@ -798,7 +756,7 @@ def polconvert(
 
         ant_t.close()
         spw_t.close()
-
+        # End of mode=='MS' block
         
     # ANTENNAS TO PARTICIPATE IN THE GAIN ESTIMATES:
     nTotAnt = len(antcoords)
@@ -806,11 +764,14 @@ def polconvert(
     calAnts = []
     for exA in antcodes:
         if exA not in excludeAnts:
+            printMsg(f"Including antenna {exA} in the solution.")
             calAnts.append(antcodes.index(exA) + 1)
         else:
             printMsg("Excluding antenna %s from the solution." % str(exA))
 
-    ##z following section
+    print(f"{calAnts=}")
+    # sys.exit()
+    ##following section
     if type(plotAnt) is str and len(plotAnt) == 0:
         plotAnt = 1
     try:
@@ -1084,7 +1045,7 @@ def polconvert(
     elif mode=='IDI':
         XYaddF = [[[] for i in range(nALMATrue)]]
     elif mode=='MS':
-        # FIXME: Really fixme! Wehere are these XYadd and XYratio things coming from and
+        # FIXME: Really fixme! Where are these XYadd and XYratio things coming from and
         # why are they set for MS mode only?
         for k in XYadd.keys():
             if XYadd[k] == []:
@@ -1197,12 +1158,6 @@ def polconvert(
         # The elements of that list shall be either
         # numbers or lists as large as the number of IFs
 
-    if isPcalUsed:
-        import _XPCalMF as XP
-
-        # printMsg('keys of XYadd:' + str(XYadd.keys()))
-        # printMsg('keys of XYratio:' + str(XYratio.keys())+'\n')
-
     for i, doant in enumerate(linAntNamTrue):
 
         #########################
@@ -1235,7 +1190,7 @@ def polconvert(
                         tempArr[1, :] = [1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1]
                     else:
                         isPcalFile = True
-                        fName = XP.XPCalMF(PCFile[0], [], 0, 0, FrInfo, IFoffset)
+                        fName = PC.XPCalMF(PCFile[0], [], 0, 0, FrInfo, IFoffset)
                         IFFCP = open(fName)
                         tempArr = []
                         for line in IFFCP.readlines():
@@ -1246,7 +1201,7 @@ def polconvert(
 
                     # Update pcal files (if not doing a test):
                     if isPcalFile and not doTest:
-                        ErrCode = XP.XPCalMF(PCFile[0], [], 1, 0, {}, IFoffset)
+                        ErrCode = PC.XPCalMF(PCFile[0], [], 1, 0, {}, IFoffset)
                         if ErrCode != 0:
                             printError(
                                 "\n\n ERROR Converting phasecal file %s\n"
@@ -1477,7 +1432,6 @@ def polconvert(
     # plotAnt is no longer used by PC.PolConvert(), but is required by doSolve
     # the second argument is "PC:PolConvert::plIF" and controls whether the huge binary fringe files are written.
     try:
-        
         printMsg(f"XYratio {XYratio}")
         printMsg(f"XYratioF {XYratioF}")
         printMsg(f"XYaddF {XYaddF}")
@@ -1516,8 +1470,6 @@ def polconvert(
 
     except Exception as ex:
         printMsg(str(ex))
-        # printMsg("Continuing despite the exception, just for the fun of it")
-        # didit = 0
         printError("\n###\n### Done with PolConvert (status %d).\n###" % (didit))
 
     # GENERATE ANTAB FILE(s):
@@ -1599,9 +1551,7 @@ def polconvert(
 
     # SOLVE FOR THE CROSS-POLARIZATION GAINS:
     if doSolve >= 0.0:
-
         tic = time.time()
-
         CGains = {
             "XYadd": {},
             "XYratio": {},
@@ -1624,37 +1574,12 @@ def polconvert(
         maxErr = 1.0e-5
         maxIter = 20  # Per gain.
 
-        # Load the solver library:
-        # try:
-        if True:
-            import _PolGainSolve as PS
-
-            goodclib = True
-            print("\nC++ shared library loaded successfully (first try)\n")
-        # except:
-        else:
-            goodclib = False
-            print("\n There has been an error related to the numpy")
-            print(" API version used by CASA. This is related to PolConvert")
-            print(" (which uses the API version of your system) and should")
-            print(" be *harmless*.\n")
-
-        if not goodclib:
-            try:
-                import _PolGainSolve as PS
-
-                goodclib = True
-                print("\nC++ shared library loaded successfully (2nd try)\n")
-            except:
-                goodclib = False
 
         ## FOR DEBUGGING:
         os.system("rm -f PolConvert.GainSolve.Calls")
 
         ############################################################
         # Levenberg-Marquardt minimizer of the GCPFF problem:
-
-        ### NOTE: CURRENTLY BROKEN!!
 
         def LMMin(p0, Ch0, Ch1):
             print("LMMin called")
@@ -1679,8 +1604,8 @@ def polconvert(
             while i < MAXIT:
 
                 ptst0 = np.copy(currP)
-                currChi2 = PS.GetChi2(ptst0, LMTune, Ch0, Ch1, 0, useRates)
-                Chi2_0 = PS.GetChi2(ptst0, -1.0, Ch0, Ch1, 0, useRates)
+                currChi2 = PC.GetChi2(ptst0, LMTune, Ch0, Ch1, 0, useRates)
+                Chi2_0 = PC.GetChi2(ptst0, -1.0, Ch0, Ch1, 0, useRates)
                 #  sys.stdout.write('%.3g/1 '%Chi2_0) ; sys.stdout.flush()
 
                 if i == 0 or currChi2 < minChi2:
@@ -1694,8 +1619,8 @@ def polconvert(
                     LMTune *= KFacRaise
                     ptst0 = np.copy(currP)
 
-                    Chi2_ini = PS.GetChi2(ptst0, LMTune, Ch0, Ch1, 0, useRates)
-                    Chi2_0 = PS.GetChi2(ptst0, -1.0, Ch0, Ch1, 0, useRates)
+                    Chi2_ini = PC.GetChi2(ptst0, LMTune, Ch0, Ch1, 0, useRates)
+                    Chi2_0 = PC.GetChi2(ptst0, -1.0, Ch0, Ch1, 0, useRates)
                     #    sys.stdout.write('%.3g/2 '%Chi2_0) ; sys.stdout.flush()
                     i += 1
 
@@ -1725,8 +1650,8 @@ def polconvert(
                     break
 
                 ptst0 = np.copy(currP)
-                Chi2_ini = PS.GetChi2(ptst0, LMTune, Ch0, Ch1, 0, useRates)
-                Chi2_0 = PS.GetChi2(ptst0, -1.0, Ch0, Ch1, 0, useRates)
+                Chi2_ini = PC.GetChi2(ptst0, LMTune, Ch0, Ch1, 0, useRates)
+                Chi2_0 = PC.GetChi2(ptst0, -1.0, Ch0, Ch1, 0, useRates)
                 #   sys.stdout.write('%.3g/3 '%Chi2_0) ; sys.stdout.flush()
 
                 i += 1
@@ -1740,8 +1665,8 @@ def polconvert(
                         i += 1
                         LMTune /= KFacDecr
                         ptst0 = np.copy(currP)
-                        Chi2_ini = PS.GetChi2(ptst0, LMTune, Ch0, Ch1, 0, useRates)
-                        Chi2_1 = PS.GetChi2(ptst0, -1.0, Ch0, Ch1, 0, useRates)
+                        Chi2_ini = PC.GetChi2(ptst0, LMTune, Ch0, Ch1, 0, useRates)
+                        Chi2_1 = PC.GetChi2(ptst0, -1.0, Ch0, Ch1, 0, useRates)
                         #       sys.stdout.write('%.3g/4'%Chi2_1)
                         if Chi2_1 < minChi2:
                             minChi2 = Chi2_1
@@ -1767,7 +1692,7 @@ def polconvert(
                     if i >= MAXIT or np.abs(relchange) < maxErr:
                         break
 
-            Chi2_final = PS.GetChi2(minGains, LMTune, Ch0, Ch1, 1, useRates)
+            Chi2_final = PC.GetChi2(minGains, LMTune, Ch0, Ch1, 1, useRates)
             FLIP = Chi2_final > 0.0  # Flip gains by 180 degrees.
 
             # GBC debugging:
@@ -1798,15 +1723,12 @@ def polconvert(
             print("GrMin called")
             MAXIT = maxIter * len(fitAnts)
             relchange = 1.0
-
             Lambda = 1.0
-
             i = 0
-
             # First iteration:
             pini = np.array(p0)
             currP = np.copy(pini)
-            Chi2ini = PS.GetChi2(currP, Lambda, Ch0, Ch1, 0,useRates)
+            Chi2ini = PC.GetChi2(currP, Lambda, Ch0, Ch1, 0,useRates)
             bestChi = float(Chi2ini)
             bestP = np.copy(pini)
             ptest = np.copy(currP)
@@ -1814,7 +1736,7 @@ def polconvert(
             while i < MAXIT:
                 i += 1
                 currP[:] = ptest
-                Chi2 = PS.GetChi2(ptest, Lambda, Ch0, Ch1, 0,useRates)
+                Chi2 = PC.GetChi2(ptest, Lambda, Ch0, Ch1, 0,useRates)
                 if Chi2 < bestChi:
                     bestChi = Chi2
                     bestP[:] = currP
@@ -1823,410 +1745,399 @@ def polconvert(
                     ptest[:] = currP
                     Lambda /= 2.0
 
-            Chi2_final = PS.GetChi2(bestP, -1.0, Ch0, Ch1, 1,useRates)
+            Chi2_final = PC.GetChi2(bestP, -1.0, Ch0, Ch1, 1,useRates)
             FLIP = Chi2_final > 0.0  # Flip gains by 180 degrees.
 
             return [bestP, FLIP]
 
-        if goodclib:
+        # Now we uh do stuff
 
-            selAnts = np.array(calAnts, dtype=np.int32)
+        selAnts = np.array(calAnts, dtype=np.int32)
+        doSolveD = float(doSolve)
 
-            doSolveD = float(doSolve)
+        if doSolveD > 0.0:
+            fitAnts = list(calAnts)
+        else:
+            fitAnts = [
+                ai for ai in linAntIdxTrue if ai in calAnts
+            ]  
 
-            if doSolveD > 0.0:
-                fitAnts = list(calAnts)
-            else:
-                fitAnts = [
-                    ai for ai in linAntIdxTrue if ai in calAnts
-                ]  # list(linAntIdxTrue)
+        lAnts = np.array(linAntIdxTrue, dtype=np.int32)
 
-            cAnts = np.array(calAnts, dtype=np.int32)
-            lAnts = np.array(linAntIdxTrue, dtype=np.int32)
-            
-            printMsg("\n%%% initializing PolGainSolve\n")
-            printMsg(f"\nselAnts {selAnts}")
-            MySolve = PS.PolGainSolve(
-                doSolveD,
-                UVTaper,
-                solint,
-                selAnts,
-                lAnts,
-                [FlagBas1, FlagBas2],
-                "PolGainSolve%s.log" % plotSuffix,
-            )
-            printMsg(PS.__doc__ + ("\nInitialization rv %d\n" % MySolve) + "%%%\n")
+        printMsg("\n%%% initializing PolGainSolve\n")
+        printMsg(f"\nselAnts {selAnts}")
+        MySolve = PC.PolGainSolve(
+            doSolveD,
+            UVTaper,
+            solint,
+            selAnts,
+            lAnts,
+            [FlagBas1, FlagBas2],
+            "PolGainSolve%s.log" % plotSuffix,
+        )
+        printMsg(PC.__doc__ + ("\nInitialization rv %d\n" % MySolve) + "%%%\n")
 
-            AllFreqs = []
+        AllFreqs = []
 
-            for pli in doIF:
-                printMsg("Reading back IF #%i" % pli)
-                print()
-                file1 = "POLCONVERT.FRINGE/OTHERS.FRINGE_IF%i" % pli
-                file2 = "POLCONVERT.FRINGE/POLCONVERT.FRINGE_IF%i" % pli
-                success = PS.ReadData(pli, file1, file2, 0.0)
-                NScan = PS.GetNScan(pli)
-                if success != 0:
-                    printError("Failed PolGainSolve: ERROR %i" % success)
+        for pli in doIF:
+            printMsg("Reading back IF #%i" % pli)
+            print()
+            file1 = "POLCONVERT.FRINGE/OTHERS.FRINGE_IF%i" % pli
+            file2 = "POLCONVERT.FRINGE/POLCONVERT.FRINGE_IF%i" % pli
+            success = PC.ReadData(pli, file1, file2, 0.0)
+            NScan = PC.GetNScan(pli)
+            if success != 0:
+                printError("Failed PolGainSolve: ERROR %i" % success)
 
-                AllFreqs.append(np.zeros(PS.GetNchan(pli), order="C", dtype=np.float64))
-                ifsofIF = PS.GetIFs(pli, AllFreqs[-1])
+            AllFreqs.append(np.zeros(PC.GetNchan(pli), order="C", dtype=np.float64))
+            ifsofIF = PC.GetIFs(pli, AllFreqs[-1])
 
-            MaxChan = max([np.shape(pp)[0] for pp in AllFreqs])
+        MaxChan = max([np.shape(pp)[0] for pp in AllFreqs])
 
-            printMsg(
-                "  length of AllFreqs is %d. MaxChan %d" % (len(AllFreqs), MaxChan)
-            )
-            printMsg("\nWill now estimate the residual cross-polarization gains.\n")
+        printMsg(
+            "  length of AllFreqs is %d. MaxChan %d" % (len(AllFreqs), MaxChan)
+        )
+        printMsg("\nWill now estimate the residual cross-polarization gains.\n")
 
-            # ESTIMATE RATES FOR ALL STATIONS (plotAnt IS THE [plotting] REFERENCE):
+        # ESTIMATE RATES FOR ALL STATIONS (plotAnt IS THE [plotting] REFERENCE):
 
-            dropAnt = calAnts.index(plotAnt)
-            rateAnts = calAnts[:dropAnt] + calAnts[dropAnt + 1 :]
-            printMsg("\n Estimate antenna delays & rates\n")
-            for nsi in range(NScan):
-                PS.DoGFF(rateAnts, npix, True, nsi, 5.0)
+        dropAnt = calAnts.index(plotAnt)
+        rateAnts = calAnts[:dropAnt] + calAnts[dropAnt + 1 :]
+        printMsg("\n Estimate antenna delays & rates\n")
+        for nsi in range(NScan):
+            PC.DoGFF(rateAnts, npix, True, nsi, 5.0)
 
-            for ci in antcodes:
-                CGains["XYadd"][ci] = {}
-                CGains["XYratio"][ci] = {}
+        for ci in antcodes:
+            CGains["XYadd"][ci] = {}
+            CGains["XYratio"][ci] = {}
+
+        for plii, pli in enumerate(doIF):
+            CGains["Frequency"][pli] = AllFreqs[plii]
+
+        # BP MODE:
+
+        if solint[0] != 0:
+            printMsg("\n Estimate antenna cross-pol gains: BP mode\n")
+            ChAv = abs(solint[0])
 
             for plii, pli in enumerate(doIF):
-                CGains["Frequency"][pli] = AllFreqs[plii]
+                Nchans = np.shape(AllFreqs[plii])[0]
 
-            # BP MODE:
+                temp = [np.zeros(Nchans, dtype=np.complex64) for ci in fitAnts]
+                BPChan = list(range(0, Nchans, ChAv))
+                if BPChan[-1] < Nchans - 1:
+                    BPChan.append(Nchans - 1)
+                BPChan = np.array(BPChan, dtype=np.int32)
+                Npar = len(fitAnts) * {True: 2, False: 1}[solveAmp]
+                laux = [pli]
+                rv = PC.SetFit(
+                    Npar, laux, fitAnts, solveAmp, solveQU, Stokes, useCov, feedRot
+                )
+                if rv != 0:
+                    printMsg("  PC.SetFit rv %d" % rv)
 
-            if solint[0] != 0:
-                printMsg("\n Estimate antenna cross-pol gains: BP mode\n")
-                ChAv = abs(solint[0])
-
-                for plii, pli in enumerate(doIF):
-                    Nchans = np.shape(AllFreqs[plii])[0]
-
-                    temp = [np.zeros(Nchans, dtype=np.complex64) for ci in fitAnts]
-                    BPChan = list(range(0, Nchans, ChAv))
-                    if BPChan[-1] < Nchans - 1:
-                        BPChan.append(Nchans - 1)
-                    BPChan = np.array(BPChan, dtype=np.int32)
-                    Npar = len(fitAnts) * {True: 2, False: 1}[solveAmp]
-                    laux = [pli]
-                    rv = PS.SetFit(
-                        Npar, laux, fitAnts, solveAmp, solveQU, Stokes, useCov, feedRot
-                    )
-                    if rv != 0:
-                        printMsg("  PS.SetFit rv %d" % rv)
-
-                    ## Auxiliary arrays for x-pol gain interpolation:
-                    interpGain = [
-                        np.zeros(len(BPChan) - 1, dtype=np.complex64) for ci in fitAnts
-                    ]
-                    interpChan = np.zeros(len(BPChan) - 1)
-                    # FIXME: Why don't we do the last channel?!
-                    # But more to the point, this is PER CHANNEL fitting
-                    for chran in range(len(BPChan) - 1):
-                        if chran == 0 and plii == 0:
-                            p0 = []
-                            for ci in fitAnts:
-                                if solveAmp:
-                                    p0 += [1.0, 0.0]
-                                else:
-                                    p0 += [0.0]
-                        else:
-                            p0 = list(myfit)
-
-                        laux = [pli]
-                        sys.stdout.write(
-                            "\r Apply rates and estimate cross-gains for IF #%i, channels %i to %i   "
-                            % (pli, BPChan[chran], BPChan[chran + 1] - 1)
-                        )
-                        sys.stdout.flush()
-
-                        printMsg(f"Using fitMethod {fitMethod} for bandpass")
-                        printMsg(f"chran={chran} p0={p0}, BPChan[chran]={BPChan[chran]}")
-                        
-                        if fitMethod not in scipyMethods:
-                            if fitMethod == "Levenberg-Marquardt":
-                                myfit, FLIP = LMMin(
-                                    p0, BPChan[chran], BPChan[chran + 1]
-                                )
-                            if fitMethod == "gradient":
-                                myfit, FLIP = GrMin(
-                                    p0, BPChan[chran], BPChan[chran + 1]
-                                )
-                        else:
-                            if fitMethod in ["BFGS", "Newton-CG", "SLSQP"]:
-                                def Fmini(p):
-                                    return PS.GetChi2(
-                                        p, -1.0, BPChan[chran], BPChan[chran + 1], 0, useRates
-                                    )
-
-                                def Fgrad(p):
-                                    return spopt.approx_fprime(p, Fmini, 1.0e-8)
-
-                                mymin = spopt.minimize(
-                                    Fmini, p0, method=fitMethod, jac=Fgrad
-                                )
-
-                            else:
-
-                                mymin = spopt.minimize(
-                                    PS.GetChi2,
-                                    p0,
-                                    args=(-1.0, BPChan[chran], BPChan[chran + 1], 0, useRates),
-                                    method=fitMethod,
-                                )
-
-                            Chi2_final = PS.GetChi2(
-                                mymin.x, -1, BPChan[chran], BPChan[chran + 1], 1, useRates
-                            )
-                            FLIP = Chi2_final > 0.0
-                            myfit = mymin.x
-                            printMsg(f"myfit {myfit}, FLIP {FLIP}")
-
-                        interpChan[chran] = 0.5 * (BPChan[chran] + BPChan[chran + 1])
-                        for ci, calant in enumerate(fitAnts):
-                            PhasFactor = {True: np.pi, False: 0.0}[
-                                FLIP and (calant in linAntIdxTrue)
-                            ]
+                ## Auxiliary arrays for x-pol gain interpolation:
+                interpGain = [
+                    np.zeros(len(BPChan) - 1, dtype=np.complex64) for ci in fitAnts
+                ]
+                interpChan = np.zeros(len(BPChan) - 1)
+                # FIXME: Why don't we do the last channel?!
+                # But more to the point, this is PER CHANNEL fitting
+                for chran in range(len(BPChan) - 1):
+                    if chran == 0 and plii == 0:
+                        p0 = []
+                        for ci in fitAnts:
                             if solveAmp:
-                                # AMP+PHASE SPACE:
-                                temp[ci][BPChan[chran] : BPChan[chran + 1] + 1] = myfit[
-                                    2 * ci
-                                ] * np.exp(1.0j * (PhasFactor + myfit[2 * ci + 1]))
-                                interpGain[ci][chran] = myfit[2 * ci] * np.exp(
-                                    1.0j * (PhasFactor + myfit[2 * ci + 1])
-                                )
+                                p0 += [1.0, 0.0]
                             else:
-                                temp[ci][
-                                    BPChan[chran] : BPChan[chran + 1] + 1
-                                ] = np.exp(1.0j * (PhasFactor + myfit[ci]))
-                                interpGain[ci][chran] = np.exp(
-                                    1.0j * (PhasFactor + myfit[ci])
-                                )
-                    for ci in antcodes:
-                        CGains["XYratio"][ci][pli] = np.ones(len(temp[0]))
-                        CGains["XYadd"][ci][pli] = np.zeros(len(temp[0]))
-                        
-#####
-## Identify accidental pi jumps:
-                    Namb = [0,0]; kj = 0
-                    NantHf = int(len(fitAnts)//2)
-                    Saltos = [0]
-                    for gi in range(len(interpGain[0])-1):
-                        NjAnt = 0
-                        for ci in range(len(fitAnts)):         
-                            if np.abs(np.angle(interpGain[ci][gi+1]/interpGain[ci][gi]))>np.pi/2.:
-                                NjAnt += 1
-                        if NjAnt > NantHf:
-                            kj = 1-kj
-                            Saltos.append(gi+1)
-                        Namb[kj] += 1
-                    Saltos.append(len(interpGain[0]))
-       
-                    if Namb[1]>0 and Namb[0]>Namb[1]:
-                        for kj in range(1,len(Saltos)-1,2):
-                            for ci in range(len(fitAnts)):
-                                interpGain[ci][Saltos[kj]:Saltos[kj+1]] *= -1.0
-                    elif Namb[1]>Namb[0]:
-                        for kj in range(0,len(Saltos)-1,2):
-                            for ci in range(len(fitAnts)):
-                                interpGain[ci][Saltos[kj]:Saltos[kj+1]] *= -1.0
-         
-
-
-                    for ci, calant in enumerate(fitAnts):
-                        #####
-                        ## Prepare gain interpolation (connect phases across band):
-                        Angles = np.angle(interpGain[ci])
-                        printMsg(f"DEBUG: Angles (before) {Angles}")
-                       
-                        for gi in range(len(Angles) - 1):
-                            if Angles[gi + 1] - Angles[gi] > np.pi:
-                                Angles[gi + 1 :] -= 2.0 * np.pi
-                            if Angles[gi + 1] - Angles[gi] < -np.pi:
-                                Angles[gi + 1 :] += 2.0 * np.pi
-
-                        AmpInterp = spint.interp1d(
-                            interpChan,
-                            np.abs(interpGain[ci]),
-                            kind="linear",
-                            bounds_error=False,
-                            fill_value="extrapolate",
-                        )
-                        PhsInterp = spint.interp1d(
-                            interpChan,
-                            Angles,
-                            kind="linear",
-                            bounds_error=False,
-                            fill_value="extrapolate",
-                        )
-                        #####
-                        phsVals = PhsInterp(range(Nchans))
-                        printMsg(f"Angles {Angles} phsVals {phsVals}")
-                        CGains["XYratio"][antcodes[calant - 1]][pli][:] = 1.0 / AmpInterp(range(Nchans))
-                        CGains["XYadd"][antcodes[calant - 1]][pli][:] = (-180.0 / np.pi * np.angle(np.exp(1.0j * phsVals))
-                        )
-                printMsg("Done with BP mode\n")
-
-            # SBD MODE:
-            else:
-                for plii, pli in enumerate(doIF):
-                    Nchans = np.shape(AllFreqs[plii])[0]
-                    temp = [np.zeros(Nchans, dtype=np.complex64) for ci in fitAnts]
-                    p0 = []
-                    for ci in fitAnts:
-                        if solveAmp:
-                            p0 += [1.0, 0.0]
-                        else:
-                            p0 += [0.0]
-                    for ci in fitAnts:
-                        p0 += [0.0]
-                    laux = [pli]  # list(doIF)
-                    Npar = len(fitAnts) * {True: 3, False: 2}[solveAmp]
-                    rv = PS.SetFit(
-                        Npar, laux, fitAnts, solveAmp, solveQU, Stokes, useCov, feedRot
-                    )
-                    if rv != 0:
-                        printMsg("  PS.SetFit rv %d" % rv)
-                    Nchans = np.shape(AllFreqs[plii])[0]
-                    FreqChan = np.linspace(-Nchans / 2.0, Nchans / 2.0, Nchans)
-                    if fitMethod not in scipyMethods:  # =='Levenberg-Marquardt':
-                        myfit = LMMin(p0, 0, MaxChan - 1)
-                        sys.stdout.write(".")
-                        sys.stdout.flush()
+                                p0 += [0.0]
                     else:
+                        p0 = list(myfit)
 
-                        # Preliminary fit (with no delays):
-                        mymin = spopt.minimize(
-                            PS.GetChi2, p0[:-nfitAnt], args=(-1.0, 0, Nchans, 0, useRates), method=fitMethod)
-                        p0[:-nfitAnt] = mymin.x
+                    laux = [pli]
+                    sys.stdout.write(
+                        "\r Apply rates and estimate cross-gains for IF #%i, channels %i to %i   "
+                        % (pli, BPChan[chran], BPChan[chran + 1] - 1)
+                    )
+                    sys.stdout.flush()
 
-                        # Now, fit the delays as well:
-                        mymin = spopt.minimize(
-                            PS.GetChi2, p0, args=(-1.0, 0, Nchans, 0, useRates), method=fitMethod)
+                    printMsg(f"Using fitMethod {fitMethod} for bandpass")
+                    printMsg(f"chran={chran} p0={p0}, BPChan[chran]={BPChan[chran]}")
 
-                    Chi2_final = PS.GetChi2(mymin.x, -1, 0, Nchans, 1, useRates)
-                    FLIP = Chi2_final > 0.0
-                    myfit = mymin.x
+                    if fitMethod not in scipyMethods:
+                        if fitMethod == "Levenberg-Marquardt":
+                            myfit, FLIP = LMMin(
+                                p0, BPChan[chran], BPChan[chran + 1]
+                            )
+                        if fitMethod == "gradient":
+                            myfit, FLIP = GrMin(
+                                p0, BPChan[chran], BPChan[chran + 1]
+                            )
+                    else:
+                        if fitMethod in ["BFGS", "Newton-CG", "SLSQP"]:
+                            def Fmini(p):
+                                return PC.GetChi2(
+                                    p, -1.0, BPChan[chran], BPChan[chran + 1], 0, useRates
+                                )
 
+                            def Fgrad(p):
+                                return spopt.approx_fprime(p, Fmini, 1.0e-8)
+
+                            mymin = spopt.minimize(
+                                Fmini, p0, method=fitMethod, jac=Fgrad
+                            )
+
+                        else:
+
+                            mymin = spopt.minimize(
+                                PC.GetChi2,
+                                p0,
+                                args=(-1.0, BPChan[chran], BPChan[chran + 1], 0, useRates),
+                                method=fitMethod,
+                            )
+
+                        Chi2_final = PC.GetChi2(
+                            mymin.x, -1, BPChan[chran], BPChan[chran + 1], 1, useRates
+                        )
+                        FLIP = Chi2_final > 0.0
+                        myfit = mymin.x
+                        printMsg(f"myfit {myfit}, FLIP {FLIP}")
+
+                    interpChan[chran] = 0.5 * (BPChan[chran] + BPChan[chran + 1])
                     for ci, calant in enumerate(fitAnts):
                         PhasFactor = {True: np.pi, False: 0.0}[
                             FLIP and (calant in linAntIdxTrue)
                         ]
                         if solveAmp:
-                            temp[ci][:] = myfit[2*ci]*np.exp(
-                                1.0j*(PhasFactor + myfit[2*ci+1] + myfit[2 * len(fitAnts) + ci]*FreqChan)
+                            # AMP+PHASE SPACE:
+                            temp[ci][BPChan[chran] : BPChan[chran + 1] + 1] = myfit[
+                                2 * ci
+                            ] * np.exp(1.0j * (PhasFactor + myfit[2 * ci + 1]))
+                            interpGain[ci][chran] = myfit[2 * ci] * np.exp(
+                                1.0j * (PhasFactor + myfit[2 * ci + 1])
                             )
                         else:
-                            temp[ci][:] = np.exp(
-                                1.0j*(PhasFactor + myfit[ci] + myfit[len(fitAnts) + ci]*FreqChan)
+                            temp[ci][
+                                BPChan[chran] : BPChan[chran + 1] + 1
+                            ] = np.exp(1.0j * (PhasFactor + myfit[ci]))
+                            interpGain[ci][chran] = np.exp(
+                                1.0j * (PhasFactor + myfit[ci])
                             )
-                    for ci in antcodes:
-                        CGains["XYratio"][ci][pli] = np.ones(len(temp[0]))
-                        CGains["XYadd"][ci][pli] = np.zeros(len(temp[0]))
-                    for ci, calant in enumerate(fitAnts):
-                        #####
-                        ## Prepare gain interpolation (connect phases across band):
+                for ci in antcodes:
+                    CGains["XYratio"][ci][pli] = np.ones(len(temp[0]))
+                    CGains["XYadd"][ci][pli] = np.zeros(len(temp[0]))
 
-                        Angles = np.angle(temp[ci])
-                        for gi in range(len(Angles) - 1):
-                            if Angles[gi + 1] - Angles[gi] > np.pi:
-                                Angles[gi + 1 :] -= 2.0 * np.pi
-                            if Angles[gi + 1] - Angles[gi] < -np.pi:
-                                Angles[gi + 1 :] += 2.0 * np.pi
+                #####
+                ## Identify accidental pi jumps:
+                Namb = [0,0]; kj = 0
+                NantHf = int(len(fitAnts)//2)
+                Saltos = [0]
+                for gi in range(len(interpGain[0])-1):
+                    NjAnt = 0
+                    for ci in range(len(fitAnts)):         
+                        if np.abs(np.angle(interpGain[ci][gi+1]/interpGain[ci][gi]))>np.pi/2.:
+                            NjAnt += 1
+                    if NjAnt > NantHf:
+                        kj = 1-kj
+                        Saltos.append(gi+1)
+                    Namb[kj] += 1
+                Saltos.append(len(interpGain[0]))
 
-                        #####
-                        CGains["XYratio"][antcodes[calant - 1]][pli][:] = (1.0 / np.abs(temp[ci]))
-                          # AmpInterp(range(Nchans))
-                        CGains["XYadd"][antcodes[calant - 1]][pli][:] = (-180.0 / np.pi * np.angle(temp[ci])
-                        )  # np.angle(np.exp(1.j*PhsInterp(range(Nchans))))
+                if Namb[1]>0 and Namb[0]>Namb[1]:
+                    for kj in range(1,len(Saltos)-1,2):
+                        for ci in range(len(fitAnts)):
+                            interpGain[ci][Saltos[kj]:Saltos[kj+1]] *= -1.0
+                elif Namb[1]>Namb[0]:
+                    for kj in range(0,len(Saltos)-1,2):
+                        for ci in range(len(fitAnts)):
+                            interpGain[ci][Saltos[kj]:Saltos[kj+1]] *= -1.0
 
-                printMsg("Done with SBD mode\n")
+                for ci, calant in enumerate(fitAnts):
+                    #####
+                    ## Prepare gain interpolation (connect phases across band):
+                    Angles = np.angle(interpGain[ci])
+                    printMsg(f"DEBUG: Angles (before) {Angles}")
 
-            ## These arrays can be very large!
+                    for gi in range(len(Angles) - 1):
+                        if Angles[gi + 1] - Angles[gi] > np.pi:
+                            Angles[gi + 1 :] -= 2.0 * np.pi
+                        if Angles[gi + 1] - Angles[gi] < -np.pi:
+                            Angles[gi + 1 :] += 2.0 * np.pi
 
-            if True:
-
-                fig = pl.figure()
-                MaxG = 0.0
-                color = ["r", "g", "b", "k", "m", "y", "c"]
-                symbol = ["o", "+", "x"]
-                Freq2Plot = np.concatenate(AllFreqs) / 1.0e9
-
-                printMsg("Working subplot 1")
-                sub1 = fig.add_subplot(211)
-                for antii, anti in enumerate(sorted(CGains["XYadd"].keys())):
-                    sub1.plot(
-                        Freq2Plot,
-                        np.concatenate(
-                            [
-                                np.array(CGains["XYadd"][anti][ll])
-                                for ll in sorted(CGains["XYadd"][anti].keys())
-                            ]
-                        ),
-                        symbol[int(((antii) // len(color)) % len(symbol))]
-                        + color[int((antii) % len(color))],
-                        label="ANT. " + str(anti), ms=2
+                    AmpInterp = spint.interp1d(
+                        interpChan,
+                        np.abs(interpGain[ci]),
+                        kind="linear",
+                        bounds_error=False,
+                        fill_value="extrapolate",
                     )
+                    PhsInterp = spint.interp1d(
+                        interpChan,
+                        Angles,
+                        kind="linear",
+                        bounds_error=False,
+                        fill_value="extrapolate",
+                    )
+                    #####
+                    phsVals = PhsInterp(range(Nchans))
+                    printMsg(f"Angles {Angles} phsVals {phsVals}")
+                    CGains["XYratio"][antcodes[calant - 1]][pli][:] = 1.0 / AmpInterp(range(Nchans))
+                    CGains["XYadd"][antcodes[calant - 1]][pli][:] = (-180.0 / np.pi * np.angle(np.exp(1.0j * phsVals))
+                    )
+            printMsg("Done with BP mode\n")
 
-                printMsg("Working subplot 2")
-                sub2 = fig.add_subplot(212, sharex=sub1)
-                for antii, anti in enumerate(sorted(CGains["XYratio"].keys())):
-                    toplot = np.concatenate(
+        # SBD MODE:
+        else:
+            for plii, pli in enumerate(doIF):
+                Nchans = np.shape(AllFreqs[plii])[0]
+                temp = [np.zeros(Nchans, dtype=np.complex64) for ci in fitAnts]
+                p0 = []
+                for ci in fitAnts:
+                    if solveAmp:
+                        p0 += [1.0, 0.0]
+                    else:
+                        p0 += [0.0]
+                for ci in fitAnts:
+                    p0 += [0.0]
+                laux = [pli]  # list(doIF)
+                Npar = len(fitAnts) * {True: 3, False: 2}[solveAmp]
+                rv = PC.SetFit(
+                    Npar, laux, fitAnts, solveAmp, solveQU, Stokes, useCov, feedRot
+                )
+                if rv != 0:
+                    printMsg("  PC.SetFit rv %d" % rv)
+                Nchans = np.shape(AllFreqs[plii])[0]
+                FreqChan = np.linspace(-Nchans / 2.0, Nchans / 2.0, Nchans)
+                if fitMethod not in scipyMethods:  # =='Levenberg-Marquardt':
+                    myfit = LMMin(p0, 0, MaxChan - 1)
+                    sys.stdout.write(".")
+                    sys.stdout.flush()
+                else:
+
+                    # Preliminary fit (with no delays):
+                    mymin = spopt.minimize(
+                        PC.GetChi2, p0[:-nfitAnt], args=(-1.0, 0, Nchans, 0, useRates), method=fitMethod)
+                    p0[:-nfitAnt] = mymin.x
+
+                    # Now, fit the delays as well:
+                    mymin = spopt.minimize(
+                        PC.GetChi2, p0, args=(-1.0, 0, Nchans, 0, useRates), method=fitMethod)
+
+                Chi2_final = PC.GetChi2(mymin.x, -1, 0, Nchans, 1, useRates)
+                FLIP = Chi2_final > 0.0
+                myfit = mymin.x
+
+                for ci, calant in enumerate(fitAnts):
+                    PhasFactor = {True: np.pi, False: 0.0}[
+                        FLIP and (calant in linAntIdxTrue)
+                    ]
+                    if solveAmp:
+                        temp[ci][:] = myfit[2*ci]*np.exp(
+                            1.0j*(PhasFactor + myfit[2*ci+1] + myfit[2 * len(fitAnts) + ci]*FreqChan)
+                        )
+                    else:
+                        temp[ci][:] = np.exp(
+                            1.0j*(PhasFactor + myfit[ci] + myfit[len(fitAnts) + ci]*FreqChan)
+                        )
+                for ci in antcodes:
+                    CGains["XYratio"][ci][pli] = np.ones(len(temp[0]))
+                    CGains["XYadd"][ci][pli] = np.zeros(len(temp[0]))
+                for ci, calant in enumerate(fitAnts):
+                    #####
+                    ## Prepare gain interpolation (connect phases across band):
+
+                    Angles = np.angle(temp[ci])
+                    for gi in range(len(Angles) - 1):
+                        if Angles[gi + 1] - Angles[gi] > np.pi:
+                            Angles[gi + 1 :] -= 2.0 * np.pi
+                        if Angles[gi + 1] - Angles[gi] < -np.pi:
+                            Angles[gi + 1 :] += 2.0 * np.pi
+
+                    #####
+                    CGains["XYratio"][antcodes[calant - 1]][pli][:] = (1.0 / np.abs(temp[ci]))
+                      # AmpInterp(range(Nchans))
+                    CGains["XYadd"][antcodes[calant - 1]][pli][:] = (-180.0 / np.pi * np.angle(temp[ci])
+                    )  # np.angle(np.exp(1.j*PhsInterp(range(Nchans))))
+
+            printMsg("Done with SBD mode\n")
+
+        ## These arrays can be very large!
+
+        if True:
+
+            fig = pl.figure()
+            MaxG = 0.0
+            color = ["r", "g", "b", "k", "m", "y", "c"]
+            symbol = ["o", "+", "x"]
+            Freq2Plot = np.concatenate(AllFreqs) / 1.0e9
+
+            printMsg("Working subplot 1")
+            sub1 = fig.add_subplot(211)
+            for antii, anti in enumerate(sorted(CGains["XYadd"].keys())):
+                sub1.plot(
+                    Freq2Plot,
+                    np.concatenate(
                         [
-                            np.array(CGains["XYratio"][anti][ll])
-                            for ll in sorted(CGains["XYratio"][anti].keys())
+                            np.array(CGains["XYadd"][anti][ll])
+                            for ll in sorted(CGains["XYadd"][anti].keys())
                         ]
-                    )
-                    MaxG = max(MaxG, np.max(toplot))
-                    sub2.plot(
-                        Freq2Plot,
-                        toplot,
-                        symbol[int(((antii) // len(color)) % len(symbol))]
-                        + color[int((antii) % len(color))],
-                        label="ANT. " + str(anti), ms=2
-                    )
-
-                printMsg("Labelling and adjusting")
-                sub1.set_ylim((-180.0, 180.0))
-                sub2.set_ylim((0.0, 1.1 * MaxG))
-                pl.setp(sub1.get_xticklabels(), "visible", False)
-                Dnu = np.max(Freq2Plot) - np.min(Freq2Plot)
-                sub1.set_xlim(
-                    (np.min(Freq2Plot) - Dnu * 0.1, np.max(Freq2Plot) + Dnu * 0.45)
+                    ),
+                    symbol[int(((antii) // len(color)) % len(symbol))]
+                    + color[int((antii) % len(color))],
+                    label="ANT. " + str(anti), ms=2
                 )
-                sub2.set_xlim(
-                    (np.min(Freq2Plot) - Dnu * 0.1, np.max(Freq2Plot) + Dnu * 0.45)
+
+            printMsg("Working subplot 2")
+            sub2 = fig.add_subplot(212, sharex=sub1)
+            for antii, anti in enumerate(sorted(CGains["XYratio"].keys())):
+                toplot = np.concatenate(
+                    [
+                        np.array(CGains["XYratio"][anti][ll])
+                        for ll in sorted(CGains["XYratio"][anti].keys())
+                    ]
                 )
-                sub2.set_ylim((0.0, 2.5))
+                MaxG = max(MaxG, np.max(toplot))
+                sub2.plot(
+                    Freq2Plot,
+                    toplot,
+                    symbol[int(((antii) // len(color)) % len(symbol))]
+                    + color[int((antii) % len(color))],
+                    label="ANT. " + str(anti), ms=2
+                )
 
-                sub1.legend(numpoints=1)
-                sub1.set_ylabel("Cross-Phase (deg.)")
-                sub2.set_ylabel("Cross-Amp (Norm.)")
-                sub2.set_xlabel("Frequency (GHz)")
-                EXPN = os.path.basename(IDI)
-                if "." in EXPN:
-                    EXPN = "-".join(EXPN.split(".")[:-1])
-                EXPN = EXPN.replace(" ", "_")
-                fig.suptitle("XPOL GAINS %s" % EXPN)
-                pl.savefig("Cross-Gains_%s%s.png" % (EXPN, plotSuffix))
-
-            # FIXME: FreeData has a lot of (invalid) opionions about how data is stored
-            if mode != 'MS':
-                PS.FreeData()
-                printMsg("PS Data freed\n")
-
-            tac = time.time()
-            printMsg("PolGainSolve took %.1f seconds.\n\n" % (tac - tic))
-
-        else:  # if not goodclib!
-
-            printMsg(
-                "\n\n  doSolve can ONLY work IF the source was compiled with DO_SOLVE=True\n  PLEASE, RECOMPILE!\n\n"
+            printMsg("Labelling and adjusting")
+            sub1.set_ylim((-180.0, 180.0))
+            sub2.set_ylim((0.0, 1.1 * MaxG))
+            pl.setp(sub1.get_xticklabels(), "visible", False)
+            Dnu = np.max(Freq2Plot) - np.min(Freq2Plot)
+            sub1.set_xlim(
+                (np.min(Freq2Plot) - Dnu * 0.1, np.max(Freq2Plot) + Dnu * 0.45)
             )
+            sub2.set_xlim(
+                (np.min(Freq2Plot) - Dnu * 0.1, np.max(Freq2Plot) + Dnu * 0.45)
+            )
+            sub2.set_ylim((0.0, 2.5))
 
-    else:  # if doSolve < 0.0:
+            sub1.legend(numpoints=1)
+            sub1.set_ylabel("Cross-Phase (deg.)")
+            sub2.set_ylabel("Cross-Amp (Norm.)")
+            sub2.set_xlabel("Frequency (GHz)")
+            EXPN = os.path.basename(IDI)
+            if "." in EXPN:
+                EXPN = "-".join(EXPN.split(".")[:-1])
+            EXPN = EXPN.replace(" ", "_")
+            fig.suptitle("XPOL GAINS %s" % EXPN)
+            pl.savefig("Cross-Gains_%s%s.png" % (EXPN, plotSuffix))
 
+        # FIXME: FreeData has a lot of (invalid) opionions about how data is stored
+        if mode != 'MS':
+            PC.FreeData()
+            printMsg("PC Data freed\n")
+
+        tac = time.time()
+        printMsg("PolGainSolve took %.1f seconds.\n\n" % (tac - tic))
+
+    else:  # If we are NOT SOLVING! (if doSolve < 0.0)
         printMsg("\n\n  doSolve was not requested\n\n")
         CGains = {"aPrioriXYGain": PrioriGains}
 
@@ -2984,9 +2895,7 @@ def polconvert(
                     "FRINGE.PLOTS/RL_LR_RATIOS_ANT_%i_%i%s.png"
                     % (thisAnt, plotAnt, plotSuffix)
                 )
-
     else:
-
         printMsg("NO DATA TO PLOT!")
     # end of plotting
 

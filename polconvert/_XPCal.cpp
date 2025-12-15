@@ -47,103 +47,24 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <complex>
 #include <sstream> 
 #include <iomanip>
+#include "./util.h"
+#include "./SWIG.h"
+#include "./_XPCal.h"
 
-#define EPSILON 0.00001
+#if PY_MAJOR_VERSION >= 3
+#define NPY_NO_DEPRECATED_API 0x0
+#endif
+#include <numpy/npy_common.h>
+#include <numpy/arrayobject.h>
 
 typedef std::complex<float> cplx32f;
 typedef std::complex<double> cplx64d;
 
 
 
-// cribbed from SWIG machinery
-#if PY_MAJOR_VERSION >= 3
-#define PyClass_Check(obj) PyObject_IsInstance(obj, (PyObject *)&PyType_Type)
-#define PyInt_Check(x) PyLong_Check(x)
-#define PyInt_AsLong(x) PyLong_AsLong(x)
-#define PyInt_FromLong(x) PyLong_FromLong(x)
-#define PyInt_FromSize_t(x) PyLong_FromSize_t(x)
-#define PyString_Check(name) PyBytes_Check(name)
-#define PyString_FromString(x) PyUnicode_FromString(x)
-#define PyString_Format(fmt, args)  PyUnicode_Format(fmt, args)
-//#define PyString_AsString(str) PyBytes_AsString(str)
-#define PyString_Size(str) PyBytes_Size(str)
-#define PyString_InternFromString(key) PyUnicode_InternFromString(key)
-#define Py_TPFLAGS_HAVE_CLASS Py_TPFLAGS_BASETYPE
-#define PyString_AS_STRING(x) PyUnicode_AS_STRING(x)
-#define _PyLong_FromSsize_t(x) PyLong_FromSsize_t(x)
-#endif
-
-// and after some hacking
-#if PY_MAJOR_VERSION >= 3
-#define PyString_AsString(obj) PyUnicode_AsUTF8(obj)
-#endif
-
-
-/* Docstrings */
-static char module_docstring[] =
-    "Interface to read phasecal metadata into PolConvert.";
-static char XPCal_docstring[] =
-    "Reads and interpolates phasecal-tone phase values, given in DiFX format.\n The first argument is the name of the phasecal file.\n The second argument is an integer: \n 0 = return the scan-averaged cross-polarization phases. \n 1 = return the scan-averaged phases in the firs pol. channel, referred to the tone of lowest frequency. \n 3 = return the phasecals in the first pol. channel for each tone and integration time.\n\n The output is a list of numpy arrays: frequency (MHz), phase (deg), rate (Hz), reference time (MJD), time offsets (s), phasecal matrix (i.e., phases for each tone and time offset).\n\nThe third argument is a group delay (in ns) to be substracted from the phasecals before the phase connection among tones.";
-
-
-static char XPConvert_docstring[] =
-    "Overwrites the pcal DiFX file with a new version, where X and Y are substitued by R and L. In this version, both the R and L entries are exact copies of X.";
-
-
-/* Available functions */
-static PyObject *XPCal(PyObject *self, PyObject *args);
-static PyObject *XPConvert(PyObject *self, PyObject *args);
-
-
-/* Module specification */
-static PyMethodDef module_methods[] = {
-    {"XPCal", XPCal, METH_VARARGS, XPCal_docstring},
-    {"XPConvert", XPConvert, METH_VARARGS, XPConvert_docstring},
-    {NULL, NULL, 0, NULL}   /* terminated by list of NULLs, apparently */
-};
-
-
-/* Initialize the module */
-
-#if PY_MAJOR_VERSION >= 3
-static struct PyModuleDef pc_module_def = {
-    PyModuleDef_HEAD_INIT,
-    "_XPCal",               /* m_name */
-    module_docstring,       /* m_doc */
-    -1,                     /* m_size */
-    module_methods,         /* m_methods */
-    NULL,NULL,NULL,NULL     /* m_reload, m_traverse, m_clear, m_free */
-};
-PyMODINIT_FUNC PyInit__XPCal(void)
-{
-    PyObject *m = PyModule_Create(&pc_module_def);
-    import_array();
-    return(m);
-}
-#else
-
-PyMODINIT_FUNC init_XPCal(void)
-{
-    import_array();
-    PyObject *m = Py_InitModule3("_XPCal", module_methods, module_docstring);
-    if (m == NULL)
-        return;
-
-}
-#endif 
-
-
-
-
-/* For double comparisons */
-bool areSame(double a, double b){
-	return fabs(a-b) < EPSILON;
-}
-
-
 //////////////////////////////////
 // MAIN FUNCTION: 
-static PyObject *XPCal(PyObject *self, PyObject *args)
+PyObject *XPCal(PyObject *self, PyObject *args)
 {
 
       
@@ -790,7 +711,7 @@ for(j=0;j<Aux;j++){
 
 
 
-static PyObject *XPConvert(PyObject *self, PyObject *args)
+PyObject *XPConvert(PyObject *self, PyObject *args)
 {
 
       

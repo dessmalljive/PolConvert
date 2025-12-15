@@ -22,12 +22,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
   
 */
 
-
-
 #include <Python.h>
-// compiler warning that we use a deprecated NumPy API
-// #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-// #define NO_IMPORT_ARRAY
+
 #if PY_MAJOR_VERSION >= 3
 #define NPY_NO_DEPRECATED_API 0x0
 #endif
@@ -47,98 +43,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <complex>
 #include <sstream> 
 #include <iomanip>
-
-#define EPSILON 0.00001
+#include "./util.h"
+#include "./SWIG.h"
 
 typedef std::complex<float> cplx32f;
 typedef std::complex<double> cplx64d;
 
-
-
-// cribbed from SWIG machinery
-#if PY_MAJOR_VERSION >= 3
-#define PyClass_Check(obj) PyObject_IsInstance(obj, (PyObject *)&PyType_Type)
-#define PyInt_Check(x) PyLong_Check(x)
-#define PyInt_AsLong(x) PyLong_AsLong(x)
-#define PyInt_FromLong(x) PyLong_FromLong(x)
-#define PyInt_FromSize_t(x) PyLong_FromSize_t(x)
-#define PyString_Check(name) PyBytes_Check(name)
-#define PyString_FromString(x) PyUnicode_FromString(x)
-#define PyString_Format(fmt, args)  PyUnicode_Format(fmt, args)
-//#define PyString_AsString(str) PyBytes_AsString(str)
-#define PyString_Size(str) PyBytes_Size(str)
-#define PyString_InternFromString(key) PyUnicode_InternFromString(key)
-#define Py_TPFLAGS_HAVE_CLASS Py_TPFLAGS_BASETYPE
-#define PyString_AS_STRING(x) PyUnicode_AS_STRING(x)
-#define _PyLong_FromSsize_t(x) PyLong_FromSsize_t(x)
-#endif
-
-// and after some hacking
-#if PY_MAJOR_VERSION >= 3
-#define PyString_AsString(obj) PyUnicode_AsUTF8(obj)
-#endif
-
-
-/* Docstrings */
-static char module_docstring[] =
-    "Interface to read/write phasecal metadata into PolConvert.";
-
-static char XPCalMF_docstring[] =
-    "Reads and interpolates phasecal-tone phase values, given in DiFX format. \n Supports multi-file. It can either return the time average of the cross-polarization phase \n or overwrite the pcal file with the polconverted solutions.\n";
-
-
-/* Available functions */
-static PyObject *XPCalMF(PyObject *self, PyObject *args);
-
-
-/* Module specification */
-static PyMethodDef module_methods[] = {
-    {"XPCalMF", XPCalMF, METH_VARARGS, XPCalMF_docstring},
-    {NULL, NULL, 0, NULL}   /* terminated by list of NULLs, apparently */
-};
-
-
-/* Initialize the module */
-
-#if PY_MAJOR_VERSION >= 3
-static struct PyModuleDef pc_module_def = {
-    PyModuleDef_HEAD_INIT,
-    "_XPCalMF",               /* m_name */
-    module_docstring,       /* m_doc */
-    -1,                     /* m_size */
-    module_methods,         /* m_methods */
-    NULL,NULL,NULL,NULL     /* m_reload, m_traverse, m_clear, m_free */
-};
-PyMODINIT_FUNC PyInit__XPCalMF(void)
-{
-    PyObject *m = PyModule_Create(&pc_module_def);
-    import_array();
-    return(m);
-}
-#else
-
-PyMODINIT_FUNC init_XPCalMF(void)
-{
-    import_array();
-    PyObject *m = Py_InitModule3("_XPCalMF", module_methods, module_docstring);
-    if (m == NULL)
-        return;
-
-}
-#endif 
-
-
-
-
-/* For double comparisons */
-bool areSame(double a, double b){
-	return fabs(a-b) < EPSILON;
-}
-
-
 //////////////////////////////////
 // MAIN FUNCTION: 
-static PyObject *XPCalMF(PyObject *self, PyObject *args)
+PyObject *XPCalMF(PyObject *self, PyObject *args)
 {
 
       

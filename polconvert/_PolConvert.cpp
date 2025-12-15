@@ -79,96 +79,20 @@
 #include <iostream>
 #include <fstream>
 #include <complex.h>
+#include <sstream> 
 #include "./DataIO.h"
 #include "./DataIOFITS.h"
 #include "./DataIOSWIN.h"
 #include "./DataIOMS.h"
 #include "./CalTable.h"
 #include "./Weighter.h"
-#include <sstream> 
+// #include "./_PolConvert.h"
+#include "./SWIG.h"
 
-
-// cribbed from SWIG machinery
-#if PY_MAJOR_VERSION >= 3
-#define PyClass_Check(obj) PyObject_IsInstance(obj, (PyObject *)&PyType_Type)
-#define PyInt_Check(x) PyLong_Check(x)
-#define PyInt_AsLong(x) PyLong_AsLong(x)
-#define PyInt_FromLong(x) PyLong_FromLong(x)
-#define PyInt_FromSize_t(x) PyLong_FromSize_t(x)
-#define PyString_Check(name) PyBytes_Check(name)
-#define PyString_FromString(x) PyUnicode_FromString(x)
-#define PyString_Format(fmt, args)  PyUnicode_Format(fmt, args)
-//#define PyString_AsString(str) PyBytes_AsString(str)
-#define PyString_Size(str) PyBytes_Size(str)
-#define PyString_InternFromString(key) PyUnicode_InternFromString(key)
-#define Py_TPFLAGS_HAVE_CLASS Py_TPFLAGS_BASETYPE
-#define PyString_AS_STRING(x) PyUnicode_AS_STRING(x)
-#define _PyLong_FromSsize_t(x) PyLong_FromSsize_t(x)
-#endif
-// and after some hacking
-#if PY_MAJOR_VERSION >= 3
-#define PyString_AsString(obj) PyUnicode_AsUTF8(obj)
-#endif
-
-
-/* Docstrings */
-static char module_docstring[] =
-    "This module provides an interface for PolConvert.";
-static char PolConvert_docstring[] =
-    "Converts mixed-polarization visibilities into pure circular-polarization basis";
-static char setPCMode_docstring[] =
-    "Sets the running mode to either ALMA (true; the default) or non-ALMA (false).";
-
-/* Available functions */
-static PyObject *PolConvert(PyObject *self, PyObject *args);
-static PyObject *setPCMode(PyObject *self, PyObject *args);
-
-
-/* Module specification */
-static PyMethodDef module_methods[] = {
-    {"PolConvert", PolConvert, METH_VARARGS, PolConvert_docstring},
-    {"setPCMode", setPCMode, METH_VARARGS, setPCMode_docstring},
-    {NULL, NULL, 0, NULL}   /* terminated by list of NULLs, apparently */
-};
-
-bool PCMode;
-
-/* Initialize the module */
-#if PY_MAJOR_VERSION >= 3
-static struct PyModuleDef pc_module_def = {
-    PyModuleDef_HEAD_INIT,
-    "_PolConvert",          /* m_name */
-    module_docstring,       /* m_doc */
-    -1,                     /* m_size */
-    module_methods,         /* m_methods */
-    NULL,NULL,NULL,NULL     /* m_reload, m_traverse, m_clear, m_free */
-};
-
-PyMODINIT_FUNC PyInit__PolConvert(void)
-{
-    PCMode = true;
-    PyObject *m = PyModule_Create(&pc_module_def);
-    return(m);
-}
-
-
-#else
-
-
-PyMODINIT_FUNC init_PolConvert(void)
-{
-    PCMode = true;
-    PyObject *m = Py_InitModule3("_PolConvert", module_methods, module_docstring);
-    if (m == NULL)
-        return;
-
-}
-#endif
-
-
+static bool PCMode;
 
 // Set the mode to non-ALMA, if the argument is 0 (false).
-static PyObject *setPCMode(PyObject *self, PyObject *args){
+PyObject *setPCMode(PyObject *self, PyObject *args){
     PyObject *ret;
     int whichMode;
     if (!PyArg_ParseTuple(args, "i", &whichMode)){      
@@ -183,7 +107,7 @@ static PyObject *setPCMode(PyObject *self, PyObject *args){
         printf("PolConvert interface will change to non-ALMA.\n");
         fflush(stdout);
     } else {
-/* PCMode=true */
+        /* PCMode=true */
         printf("PolConvert interface remains in ALMA mode.\n");
         fflush(stdout);
     }
@@ -193,7 +117,7 @@ static PyObject *setPCMode(PyObject *self, PyObject *args){
 
 //////////////////////////////////
 // MAIN FUNCTION: 
-static PyObject *PolConvert(PyObject *self, PyObject *args)
+PyObject *PolConvert(PyObject *self, PyObject *args)
 {
     static const std::complex<float> oneOverSqrt2 = 0.7071067811;
     static const cplx32f Im = cplx32f(0.,1.);
@@ -666,9 +590,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     bool OverWrite= true; // Always force overwrite (for now)
     bool iDoSolve = doSolve >= 0.0;
 
-
     std::string msliteral("MS");
-    // This is not the way.
     if (msliteral==datamode) {
         sprintf(message,"\n\n Opening and preparing Measurement Set %s.\n", outputfits.c_str());
         fprintf(logFile, "%s", message); std::cout<<message; fflush(logFile);

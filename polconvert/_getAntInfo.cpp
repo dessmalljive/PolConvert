@@ -19,116 +19,29 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
 
+#include <sys/types.h>
+#include <iostream>
+#include <fstream>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
 #include <Python.h>
 
-// compiler warning that we use a deprecated NumPy API
-// #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-// #define NO_IMPORT_ARRAY
 #if PY_MAJOR_VERSION >= 3
 #define NPY_NO_DEPRECATED_API 0x0
 #endif
 #include <numpy/npy_common.h>
 #include <numpy/arrayobject.h>
 
-#include <sys/types.h>
-#include <iostream> 
-#include <fstream>
-#include <stdlib.h>  
-#include <string.h>
 #include "fitsio.h"
-#include <math.h>
-
-
-// cribbed from SWIG machinery
-#if PY_MAJOR_VERSION >= 3
-#define PyClass_Check(obj) PyObject_IsInstance(obj, (PyObject *)&PyType_Type)
-#define PyInt_Check(x) PyLong_Check(x)
-#define PyInt_AsLong(x) PyLong_AsLong(x)
-#define PyInt_FromLong(x) PyLong_FromLong(x)
-#define PyInt_FromSize_t(x) PyLong_FromSize_t(x)
-#define PyString_Check(name) PyBytes_Check(name)
-#define PyString_FromString(x) PyUnicode_FromString(x)
-#define PyString_Format(fmt, args)  PyUnicode_Format(fmt, args)
-//#define PyString_AsString(str) PyBytes_AsString(str)
-#define PyString_Size(str) PyBytes_Size(str)
-#define PyString_InternFromString(key) PyUnicode_InternFromString(key)
-#define Py_TPFLAGS_HAVE_CLASS Py_TPFLAGS_BASETYPE
-#define PyString_AS_STRING(x) PyUnicode_AS_STRING(x)
-#define _PyLong_FromSsize_t(x) PyLong_FromSsize_t(x)
-#endif
-// and after some hacking
-#if PY_MAJOR_VERSION >= 3
-#define PyString_AsString(obj) PyUnicode_AsUTF8(obj)
-#endif
-
-/* Docstrings */
-static char module_docstring[] =
-    "Get antenna information (coordinates and mount types).";
-static char getAntInfo_docstring[] =
-    "Returns antenna information";
-static char getCoords_docstring[] =
-    "Returns antenna coordinates";
-static char getMounts_docstring[] =
-    "Returns the mount types";
-
-/* Available functions */
-static PyObject *getAntInfo(PyObject *self, PyObject *args);
-static PyObject *getCoords(PyObject *self, PyObject *args);
-static PyObject *getMounts(PyObject *self, PyObject *args);
-
-
-/* Module specification */
-static PyMethodDef module_methods[] = {
-    {"getAntInfo", getAntInfo, METH_VARARGS, getAntInfo_docstring},
-    {"getCoords", getCoords, METH_VARARGS, getCoords_docstring},
-    {"getMounts", getMounts, METH_VARARGS, getMounts_docstring}, //,
-    {NULL, NULL, 0, NULL}   /* terminated by list of NULLs, apparently */
-
-};
-
-/* Initialize the module */
-
-#if PY_MAJOR_VERSION >= 3
-
-static struct PyModuleDef pc_module_def = {
-    PyModuleDef_HEAD_INIT,
-    "_getAntInfo",          /* m_name */
-    module_docstring,       /* m_doc */
-    -1,                     /* m_size */
-    module_methods,         /* m_methods */
-    NULL,NULL,NULL,NULL     /* m_reload, m_traverse, m_clear, m_free */
-};
-
-PyMODINIT_FUNC PyInit__getAntInfo(void)
-{
-    PyObject *m = PyModule_Create(&pc_module_def);
-    import_array();
-    return(m);
-}
-
-#else
-
-PyMODINIT_FUNC init_getAntInfo(void)
-{
-    PyObject *m = Py_InitModule3("_getAntInfo", module_methods, module_docstring);
-    import_array();
-    if (m == NULL)
-        return;
-
-}
-
-#endif
-
-///////////////////////
-
-
-char message[512];
+#include "./SWIG.h"
+#include "./_getAntInfo.h"
 
 int Nants = 1;
 double *Coords = new double[3];
 int *Mounts = new int[1];
 
-static PyObject *getAntInfo(PyObject *self, PyObject *args){
+PyObject *getAntInfo(PyObject *self, PyObject *args){
   PyObject *IDI;
   int status, ist, imt, iAux;
   long lAux, jj;
@@ -213,7 +126,7 @@ static PyObject *getAntInfo(PyObject *self, PyObject *args){
   return Py_BuildValue("i",0);
 }
 
-static PyObject *getCoords(PyObject *self, PyObject *args){
+PyObject *getCoords(PyObject *self, PyObject *args){
   // Build numpy array:
   PyObject *CoordArr;
   int nd = 2;
@@ -223,7 +136,7 @@ static PyObject *getCoords(PyObject *self, PyObject *args){
   return CoordArr;
 }
 
-static PyObject *getMounts(PyObject *self, PyObject *args){
+PyObject *getMounts(PyObject *self, PyObject *args){
   // Build numpy array:
   PyObject *MountArr;
   int nd = 1;

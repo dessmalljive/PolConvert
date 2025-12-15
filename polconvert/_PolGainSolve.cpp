@@ -41,100 +41,14 @@
 #include <complex>
 #include <dirent.h>
 #include <fftw3.h>
-//#include <gsl/gsl_errno.h>
-//#include <gsl/gsl_linalg.h>
-
-
-// cribbed from SWIG machinery
-#if PY_MAJOR_VERSION >= 3
-#define PyClass_Check(obj) PyObject_IsInstance(obj, (PyObject *)&PyType_Type)
-#define PyInt_Check(x) PyLong_Check(x)
-#define PyInt_AsLong(x) PyLong_AsLong(x)
-#define PyInt_FromLong(x) PyLong_FromLong(x)
-#define PyInt_FromSize_t(x) PyLong_FromSize_t(x)
-#define PyString_Check(name) PyBytes_Check(name)
-#define PyString_FromString(x) PyUnicode_FromString(x)
-#define PyString_Format(fmt, args)  PyUnicode_Format(fmt, args)
-//#define PyString_AsString(str) PyBytes_AsString(str)
-#define PyString_Size(str) PyBytes_Size(str)
-#define PyString_InternFromString(key) PyUnicode_InternFromString(key)
-#define Py_TPFLAGS_HAVE_CLASS Py_TPFLAGS_BASETYPE
-#define PyString_AS_STRING(x) PyUnicode_AS_STRING(x)
-#define _PyLong_FromSsize_t(x) PyLong_FromSsize_t(x)
-// For PyArray_FromDimsAndData -> PyArray_SimpleNewFromData
-//#define INTEGER long
-//#define INTEGERCAST  (const npy_intp*)
-//#else
-// For PyArray_FromDimsAndData -> PyArray_SimpleNewFromData
-//#define INTEGER int
-//#define INTEGERCAST (long int *)
-#endif
-// and after some hacking
-#if PY_MAJOR_VERSION >= 3
-#define PyString_AsString(obj) PyUnicode_AsUTF8(obj)
-#endif
-
+#include "./SWIG.h"
 
 
 typedef std::complex<double> cplx64f;
 typedef std::complex<float> cplx32f;
 
-/* Docstrings */
-static char module_docstring[] =
-    "This module provides the cross-polarization gain-solver engine.";
-static char PolGainSolve_docstring[] =
-    "Solves for cross-polarization gains from mixed-polarization visibilities";
-static char ReadData_docstring[] =
-    "Reads data (one IF) for PolGainSolve";
-static char FreeData_docstring[] =
-    "Releases the data pointers of PolGainSolve";
-static char GetChi2_docstring[] =
-    "Computes the Chi2 for a given set of cross-pol gains";
-static char GetIFs_docstring[] =
-    "Returns the array of frequencies for a given IF";
-static char DoGFF_docstring[] =
-    "Performs a simplified GFF (delays and rates). The reference antenna is set by not adding it to the list of fittable antennas";
-static char SetFringeRates_docstring[] =
-    "Forces the antenna fringe-rates to the list give, before the GCPFF is performed";
-static char GetNScan_docstring[] =
-    "Returns the number of scans for the given IF.";
-static char SetFit_docstring[] =
-    "Allocates memory for the GCPFF.";
-static char GetNchan_docstring[] =
-    "Returns the number of channels for the given IF.";
-
-
-
-/* Available functions */
-static PyObject *PolGainSolve(PyObject *self, PyObject *args);
-static PyObject *ReadData(PyObject *self, PyObject *args);
-static PyObject *GetChi2(PyObject *self, PyObject *args);
-static PyObject *GetIFs(PyObject *self, PyObject *args);
-static PyObject *GetNchan(PyObject *self, PyObject *args);
-static PyObject *DoGFF(PyObject *self, PyObject *args);
-static PyObject *SetFringeRates(PyObject *self, PyObject *args);
-static PyObject *GetNScan(PyObject *self, PyObject *args);
-static PyObject *FreeData(PyObject *self, PyObject *args);
-static PyObject *SetFit(PyObject *self, PyObject *args);
 
 bool solveSystem(int Neq, double *Hessian, double *Residuals, double *Solution, double *Errors);
-
-
-/* Module specification */
-static PyMethodDef module_methods[] = {
-    {"PolGainSolve", PolGainSolve, METH_VARARGS, PolGainSolve_docstring},
-    {"ReadData", ReadData, METH_VARARGS, ReadData_docstring},
-    {"GetChi2", GetChi2, METH_VARARGS, GetChi2_docstring},
-    {"GetIFs", GetIFs, METH_VARARGS, GetIFs_docstring},
-    {"DoGFF", DoGFF, METH_VARARGS, DoGFF_docstring},
-    {"SetFringeRates", SetFringeRates, METH_VARARGS, SetFringeRates_docstring},
-    {"GetNScan",GetNScan, METH_VARARGS, GetNScan_docstring},
-    {"GetNchan",GetNchan, METH_VARARGS, GetNchan_docstring},
-    {"FreeData", FreeData, METH_VARARGS, FreeData_docstring},
-    {"SetFit", SetFit, METH_VARARGS, SetFit_docstring},
-    {NULL, NULL, 0, NULL} /* terminated by list of NULLs, apparently */
-};
-
 
 // normally abort() is called on problems, which breaks CASA.
 // here we report and save the error condition which can be
@@ -153,34 +67,6 @@ static long chisqcount = 0;
 //static long twincounter = 0;
 
 
-/* Initialize the module */
-#if PY_MAJOR_VERSION >= 3
-static struct PyModuleDef pc_module_def = {
-    PyModuleDef_HEAD_INIT,
-    "_PolGainSolve",         /* m_name */
-    module_docstring,       /* m_doc */
-    -1,                     /* m_size */
-    module_methods,         /* m_methods */
-    NULL,NULL,NULL,NULL     /* m_reload, m_traverse, m_clear, m_free */
-};
-
-PyMODINIT_FUNC PyInit__PolGainSolve(void)
-{
-    PyObject *m = PyModule_Create(&pc_module_def);
-    //  import_array();
-    //  (void)gsl_set_error_handler(gsl_death);
-    return(m);
-}
-#else
-PyMODINIT_FUNC init_PolGainSolve(void)
-{
-    PyObject *m = Py_InitModule3("_PolGainSolve", module_methods, module_docstring);import_array();
-    //  (void)gsl_set_error_handler(gsl_death);
-    if (m == NULL)
-        return;
-
-}
-#endif
 ///////////////////////
 
 
@@ -437,7 +323,7 @@ bool solveSystem(int Neq, double *HessianOrig, double *ResidualsOrig, double *So
     return isSingular;
 }
 
-static PyObject *GetNchan(PyObject *self, PyObject *args){
+PyObject *GetNchan(PyObject *self, PyObject *args){
     int cIF, k, j;
     PyObject *ret;
 
@@ -469,7 +355,7 @@ static PyObject *GetNchan(PyObject *self, PyObject *args){
     return ret;
 }
 
-static PyObject *GetNScan(PyObject *self, PyObject *args){
+PyObject *GetNScan(PyObject *self, PyObject *args){
     int cIF, k, j;
     PyObject *ret;
 
@@ -502,7 +388,7 @@ static PyObject *GetNScan(PyObject *self, PyObject *args){
 
 }
 
-static PyObject *PolGainSolve(PyObject *self, PyObject *args){
+PyObject *PolGainSolve(PyObject *self, PyObject *args){
 
     PyObject *calant, *linant, *solints, *flagBas, *logNameObj;
 
@@ -628,7 +514,7 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
     auxC11Flp = (cplx64f**) malloc(k*sizeof(cplx64f*));
     UVWeights = (double*) malloc(k*sizeof(double));
 
-    for(i=0;i<k;i++){ // FIXME: (3*NCalAnt+1)*sizeof(cplx64f) can't be right, surely?!
+    for(i=0;i<k;i++){ 
         auxC00[i] = (cplx64f*) malloc((3*NCalAnt+1)*sizeof(cplx64f));
         auxC11[i] = (cplx64f*) malloc((3*NCalAnt+1)*sizeof(cplx64f));
         auxC01[i] = (cplx64f*) malloc((3*NCalAnt+1)*sizeof(cplx64f));
@@ -679,7 +565,7 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
 }
 
 
-static PyObject *FreeData(PyObject *self, PyObject *args) {
+PyObject *FreeData(PyObject *self, PyObject *args) {
 
     int i,j; 
 
@@ -729,7 +615,7 @@ static PyObject *FreeData(PyObject *self, PyObject *args) {
 // In addition, arrange the data in scans.
 // MaxDT is the maximum allowed time separation between 
 // neighboring entries of the same scan (in seconds).
-static PyObject *ReadData(PyObject *self, PyObject *args) {
+PyObject *ReadData(PyObject *self, PyObject *args) {
 
     int IFN;
     const char *file1, *file2;
@@ -837,10 +723,15 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
 
     // Maximum number of channels:
     if (Nchan[NIF-1] > MaxChan){
+        // I think we asplode here.
+        std::cerr << "Had " << MaxChan << " channels "
+                  << " in CrossSpec00 et al.; upgrading to " << Nchan[NIF-1] << " + 1" 
+                  << std::endl;
         MaxChan=Nchan[NIF-1];
         for (i=0; i < NBas; i++) {
-            CrossSpec00[i] = (cplx64f *) realloc(CrossSpec00[i], MaxChan*sizeof(cplx64f)+1); // Adding one, because why not?
-            CrossSpec11[i] = (cplx64f *) realloc(CrossSpec11[i], MaxChan*sizeof(cplx64f)+1);
+            // Adding one, because why not?
+            CrossSpec00[i] = (cplx64f *) realloc(CrossSpec00[i], (MaxChan+1)*sizeof(cplx64f)); 
+            CrossSpec11[i] = (cplx64f *) realloc(CrossSpec11[i], (MaxChan+1)*sizeof(cplx64f));
             if(!CrossSpec00[i] || !CrossSpec11[i]) {
                 CrossSpec00[i]=nullptr;
                 CrossSpec11[i]=nullptr;
@@ -1238,7 +1129,7 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
 
 /// GetIFs(ifNr) for invocation from Python like
 ///    AllFreqs = [];  AllFreqs.append(np.zeros(PS.GetNchan(pli), order="C", dtype=np.float)); rc = PS.GetIFs(pli, AllFreqs[-1])
-static PyObject *GetIFs(PyObject *self, PyObject *args) {  
+PyObject *GetIFs(PyObject *self, PyObject *args) {  
     int i,j,k;
 
     PyObject *FreqsObj;
@@ -1309,7 +1200,7 @@ double QuinnEstimate(cplx64f *FFTVec){
 
 //////////////////////////////
 
-static PyObject *SetFringeRates(PyObject *self, PyObject *args) {
+PyObject *SetFringeRates(PyObject *self, PyObject *args) {
 
     int i,j,k,NantFix,cIF,cScan;
     double *rates[4];
@@ -1343,7 +1234,7 @@ static PyObject *SetFringeRates(PyObject *self, PyObject *args) {
     return ret;
 }
 
-static PyObject *DoGFF(PyObject *self, PyObject *args) {
+PyObject *DoGFF(PyObject *self, PyObject *args) {
 
     int i,j,k,l,m, a1,a2, af1, af2, BNum,cScan;
     double *T0 = new double[NBas];  
@@ -1986,7 +1877,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
 
 }
 
-static PyObject *SetFit(PyObject *self, PyObject *args) {
+PyObject *SetFit(PyObject *self, PyObject *args) {
     int i, j, k, oldNpar = Npar;
     bool foundit;
 
@@ -2099,7 +1990,7 @@ static PyObject *SetFit(PyObject *self, PyObject *args) {
 }
 
 
-static PyObject *GetChi2(PyObject *self, PyObject *args) { 
+PyObject *GetChi2(PyObject *self, PyObject *args) { 
 
     int Ch0, Ch1;
     int i, k,l, end;
