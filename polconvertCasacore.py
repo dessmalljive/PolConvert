@@ -38,16 +38,51 @@ def showArgs(**kw):
 
 # I have so enjoyed the journey to get this code written!
 def clearcal(msname):
+    print(f"{msname=}")
     t = casacore.tables.table(msname, readonly=False)
     casacore.tables.taql(f"update $t set CORRECTED_DATA = DATA")
     t.close()
 
-    
-    #tb = table(msname, readonly=False)
-    casacore.tables.taql(f"update '{msname}' set CORRECTED_DATA = DATA")
-    #tb.close()
-    
-    
+def tidy_temp_files():
+    _TEMP_FILES = ('CONVERSION.MATRIX', 'FRINGE.PEAKS', 'FRINGE.PLOTS', 'POLCONVERT.FRINGE', 'PolConvert.log',
+                   'PolConvert.XYGains.dat', 'PolGainSolve.log', 'PolConvert_standalone.last',
+                   f"Cross-Gains_{args['inputs']['ref_idi'].split('.')[0]}.png")
+    for a_path in _TEMP_FILES:
+        a_file = Path(a_path)
+        if a_file.exists():
+            if a_file.is_file():
+                a_file.unlink()
+            else:
+                shutil.rmtree(a_file)
+
+def tidy_temp_files2():
+    _TEMP_FILES = ('CONVERSION.MATRIX', 'FRINGE.PEAKS', 'FRINGE.PLOTS', 'POLCONVERT.FRINGE', 'PolConvert.log',
+                   'PolConvert.XYGains.dat', 'PolGainSolve.log', 'PolConvert_standalone.last',
+                   f"Cross-Gains_{args['inputs']['ref_idi'].split('.')[0]}.png")
+    for a_path in _TEMP_FILES:
+        a_file = Path(a_path)
+        if a_file.exists():
+            if a_file.name == 'PolConvert.log':
+                shutil.move(a_file, Path(args['config']['logdir']) / 'PolConvert-apply.log')
+            else:
+                if a_file.is_file():
+                    a_file.unlink()
+                else:
+                    shutil.rmtree(a_file)
+
+def tidy_temp_files3():
+    _TEMP_FILES = ('CONVERSION.MATRIX', 'FRINGE.PEAKS', 'FRINGE.PLOTS', 'POLCONVERT.FRINGE', 'PolConvert.log',
+                   'PolConvert.XYGains.dat', 'PolGainSolve.log', 'PolConvert_standalone.last',
+                   f"Cross-Gains_{args['inputs']['ref_idi'].split('.')[0]}.png")
+    # Move all created output files (but the IDIs) into the expected log folder
+    for a_path in _TEMP_FILES:
+        a_file = Path(a_path)
+        if a_file.exists():
+            if a_file.name == 'PolConvert.log':
+                shutil.move(a_file, Path(args['config']['logdir']) / 'PolConvert-compute.log')
+            else:
+                shutil.move(a_file, Path(args['config']['logdir']) / a_file)
+
 def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exclude_baselines, do_ifs,
          time_range, chan_avg=1, time_avg=20, solve_weight=0.0, solve_amp=True, to_compute=True, to_apply=True,
          suffix='.PCONVERT', logdir='polconvert_logs'):
@@ -101,15 +136,8 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
                    'PolConvert.XYGains.dat', 'PolGainSolve.log', 'PolConvert_standalone.last',
                    f"Cross-Gains_{args['inputs']['ref_idi'].split('.')[0]}.png")
     # If exists, remove all created output files (but the IDIs) from prior runs
-    if args['options']['to_compute']:
-        for a_path in _TEMP_FILES:
-            a_file = Path(a_path)
-            if a_file.exists():
-                if a_file.is_file():
-                    a_file.unlink()
-                else:
-                    shutil.rmtree(a_file)
-
+    if to_compute:
+        tidy_temp_files()
     XYadd = {}
     XYratio = {}
     # Probably not needed
@@ -118,10 +146,12 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
         XYratio[lant] = list(np.ones(len(do_ifs)))
 
     if to_compute:
+        print(f"We're computing?!")
         new_infile = Path(ref_idi + suffix)
         if new_infile.exists() and (suffix != ''):
             new_infile.unlink()
 
+        # The "COBLYA" setting indicates that this pass is for phasecal
         try:
             kw = { 'mode' : 'MS',
                    'IDI' : ref_idi,
@@ -180,16 +210,9 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
             _ = pconv.polconvert(**kw2)
             print("Done second call")
         finally:
-            # Move all created output files (but the IDIs) into the expected log folder
-            for a_path in _TEMP_FILES:
-                a_file = Path(a_path)
-                if a_file.exists():
-                    if a_file.name == 'PolConvert.log':
-                        shutil.move(a_file, Path(args['config']['logdir']) / 'PolConvert-compute.log')
-                        # a_file.rename(Path(args['logdir']) / a_path)
-                    else:
-                        shutil.move(a_file, Path(args['config']['logdir']) / a_file)
-
+            tidy_temp_files3()
+    # End of "to_compute" block
+    
     if to_apply:
         print("Applying solutions")
         if not to_compute:
@@ -205,12 +228,11 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
         try:
             # Third pass
             # We clear the corrected data column
-            clearcal(ref_idi)
-            # So the point is that here we no longer have a 'timerange' argument.
-            # And we also don't solve, so we apply the XYadd and XYratio results already calculated to the full MS
+            # clearcal(idi_files)
+            # We don't solve, so we apply the XYadd and XYratio results already calculated to the full MS
             kw3 = {'mode' : 'MS',
-                   'IDI' : ref_idi,
-                   'OUTPUTIDI' : ref_idi, 
+                   'OUTPUTIDI' : idi_files,
+                   'IDI' : idi_files,
                    'doTest': False,
                    'linAntIdx': linear_antennas,
                    'plotAnt': -1,
@@ -220,25 +242,17 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
                    'plotRange': time_range,
                    'XYadd': XYadd,
                    'XYratio': XYratio}
-            print("kw3", kw3)
+            print(f"Applying corrections: {kw3}")
             pconv.polconvert(**kw3)
         finally:
             # Move all created output files into the expected log folder
-            for a_path in _TEMP_FILES:
-                a_file = Path(a_path)
-                if a_file.exists():
-                    if a_file.name == 'PolConvert.log':
-                        shutil.move(a_file, Path(args['config']['logdir']) / 'PolConvert-apply.log')
-                    else:
-                        if a_file.is_file():
-                            a_file.unlink()
-                        else:
-                            shutil.rmtree(a_file)
-
+            tidy_temp_files2()
+    else:
+        print("Not applying?")
 
 if __name__ == '__main__':
     usage = "%(prog)s  [-h]  <ini_file>"
-    description = """Runs PolConvert on EVN Measurement Sets to convert the visibilities from antennas
+    description = """Runs PolConvert on EVN FITS-IDI files to convert the visibilities from antennas
     that recorded linear polarization instead of circular.
     This is a wrapper for the PolConvert-standalone program that reads the required parameters
     from an (TOML) input file.
@@ -292,8 +306,9 @@ if __name__ == '__main__':
         # e.g. In case it is just a number
         args['config']['suffix'] = str(args['config']['suffix'])
 
-    if isinstance(args['inputs']['idi_files'], str):
-        args['inputs']['idi_files'] = glob.glob(args['inputs']['idi_files'])
+# We don't do this for MS files!
+#    if isinstance(args['inputs']['idi_files'], str):
+#        args['inputs']['idi_files'] = glob.glob(args['inputs']['idi_files'])
 
     if ('*' in args['inputs']['ref_idi']) or ('?' in args['inputs']['ref_idi']):
         args['inputs']['ref_idi'] = find_idi.find_idi_with_time(idi_files= \
@@ -307,11 +322,19 @@ if __name__ == '__main__':
            f"The Measurement Set {args['inputs']['ref_idi']} does not exist or cannot be found."
 
     # Ready to go!
-    main(ref_idi=args['inputs']['ref_idi'], idi_files=args['inputs']['idi_files'],
-         linear_antennas=args['inputs']['linants'], ref_antenna=args['inputs']['refant'],
-         exclude_antennas=args['inputs']['exclude_ants'], exclude_baselines=args['inputs']['exclude_baselines'],
-         do_ifs=args['options']['do_if'], time_range=args['options']['time_range'],
-         chan_avg=args['options']['chanavg'], time_avg=args['options']['timeavg'],
-         solve_weight=args['options']['solve_weight'], solve_amp=args['options']['solve_amp'],
-         to_compute=args['options']['to_compute'], to_apply=args['options']['to_apply'],
-         suffix=args['config']['suffix'], logdir=args['config']['logdir'])
+    main(ref_idi=args['inputs']['ref_idi'],
+         idi_files=args['inputs']['idi_files'],
+         linear_antennas=args['inputs']['linants'],
+         ref_antenna=args['inputs']['refant'],
+         exclude_antennas=args['inputs']['exclude_ants'],
+         exclude_baselines=args['inputs']['exclude_baselines'],
+         do_ifs=args['options']['do_if'],
+         time_range=args['options']['time_range'],
+         chan_avg=args['options']['chanavg'],
+         time_avg=args['options']['timeavg'],
+         solve_weight=args['options']['solve_weight'],
+         solve_amp=args['options']['solve_amp'],
+         to_compute=args['options']['to_compute'],
+         to_apply=args['options']['to_apply'],
+         suffix=args['config']['suffix'],
+         logdir=args['config']['logdir'])
