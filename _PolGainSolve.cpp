@@ -44,6 +44,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 //#include <gsl/gsl_errno.h>
 //#include <gsl/gsl_linalg.h>
 
+// https://stackoverflow.com/questions/47026900/pyarray-check-gives-segmentation-fault-with-cython-c/47027598#47027598
+// it is only a trick to ensure import_array() is called, when *.so is loaded
+// just called only once
+int init_numpy(){
+     import_array(); // PyError if not successful
+     return 0;
+}
+
+// const static int numpy_initialized =  init_numpy();
 
 
 

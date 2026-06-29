@@ -245,8 +245,8 @@ def polconvert(
         OFF.close()
 
     ## Set to non-ALMA:
-    if len(ALMAstuff) == 0:
-        PC.setPCMode(0)
+    #if len(ALMAstuff) == 0:
+    #    PC.setPCMode(0)
 
     #  amp_norm=0.0
 
@@ -524,10 +524,10 @@ def polconvert(
                         % (SNAM, calcsoucoords[0][-1], calcsoucoords[1][-1])
                     )
 
-            antcoords = np.array(antcoords, dtype=np.float, order="C")
+            antcoords = np.array(antcoords, dtype=float, order="C")
             antmounts = np.array(antmounts, order="C")
-            calcsoucoords[0] = np.array(calcsoucoords[0], dtype=np.float, order="C")
-            calcsoucoords[1] = np.array(calcsoucoords[1], dtype=np.float, order="C")
+            calcsoucoords[0] = np.array(calcsoucoords[0], dtype=float, order="C")
+            calcsoucoords[1] = np.array(calcsoucoords[1], dtype=float, order="C")
             printMsg("done parsing calc")
         except Exception as ex:
             printMsg(str(ex))
@@ -590,8 +590,8 @@ def polconvert(
             )
 
             soucoords = [
-                np.array(ffile[grsou].data["RAAPP"], dtype=np.float, order="C"),
-                np.array(ffile[grsou].data["DECAPP"], dtype=np.float, order="C"),
+                np.array(ffile[grsou].data["RAAPP"], dtype=float, order="C"),
+                np.array(ffile[grsou].data["DECAPP"], dtype=float, order="C"),
             ]
 
             if raappUnit == "DEGREES":
@@ -618,10 +618,11 @@ def polconvert(
                 antmounts = gA.getMounts()
         # FIXME: need a way to find antenna codes if above fails:
         #        antcodes = ['%02i'%i for i in range(1,len(antmounts)+1)]
-        except:
+        except Exception as e:
             printMsg(
                 "WARNING! This FITS-IDI file has missing information!\nPolConvert may not calibrate properly."
             )
+            print(e)
     else:
         printError("Invalid input data!")
 
@@ -797,11 +798,11 @@ def polconvert(
     if type(feedRotation) is not list:
         printError("feedRotation must be a list of numbers")
     elif len(feedRotation) == 0:
-        feedRot = np.zeros(nTotAnt, order="C", dtype=np.float)
+        feedRot = np.zeros(nTotAnt, order="C", dtype=float)
     elif len(feedRotation) != nTotAnt:
         printError("feedRotation must have %i entries!" % nTotAnt)
     else:
-        feedRot = np.pi / 180.0 * np.array(feedRotation, dtype=np.float, order="C")
+        feedRot = np.pi / 180.0 * np.array(feedRotation, dtype=float, order="C")
 
     # Get the REAL number (and names) of linear-pol antennas in this dataset:
     nALMATrue = 0
@@ -1045,11 +1046,11 @@ def polconvert(
                 )
             Nus = 1.0e6 * np.array(
                 FrInfo["FREQ (MHZ)"][j - 1] + FrInfo["BW (MHZ)"][j - 1] * NuChan,
-                dtype=np.float,
+                dtype=float,
             )
 
             for dfile in range(len(XYaddF)):
-                XYaddF[dfile][i].append(np.zeros(len(Nus), dtype=np.float, order="C"))
+                XYaddF[dfile][i].append(np.zeros(len(Nus), dtype=float, order="C"))
                 XYaddF[dfile][i][-1][:] = (
                     2.0 * np.pi * (Nus - XYdelF[i][1]) * XYdelF[i][0]
                 )
@@ -1086,7 +1087,7 @@ def polconvert(
                 XYratioF[dfile][i].append(
                     np.ones(
                         FrInfo["NUM CHANNELS"][j - 1] // FrInfo["CHANS TO AVG"][j - 1],
-                        dtype=np.float,
+                        dtype=float,
                         order="C",
                     )
                 )
@@ -1201,7 +1202,7 @@ def polconvert(
                             Nus = np.array(
                                 FrInfo["FREQ (MHZ)"][j - 1]
                                 + FrInfo["BW (MHZ)"][j - 1] * NuChan,
-                                dtype=np.float,
+                                dtype=float,
                             )
 
                             #### BANDPASS MODE:
@@ -1765,7 +1766,7 @@ def polconvert(
                 if success != 0:
                     printError("Failed PolGainSolve: ERROR %i" % success)
 
-                AllFreqs.append(np.zeros(PS.GetNchan(pli), order="C", dtype=np.float))
+                AllFreqs.append(np.zeros(PS.GetNchan(pli), order="C", dtype=float))
                 ifsofIF = PS.GetIFs(pli, AllFreqs[-1])
 
             MaxChan = max([np.shape(pp)[0] for pp in AllFreqs])
@@ -2176,12 +2177,12 @@ def polconvert(
             dtype = np.dtype(
                 [
                     ("FILE", np.int32),
-                    ("JDT", np.float64),
+                    ("JDT", float64),
                     ("ANT1", np.int32),
                     ("ANT2", np.int32),
-                    ("PANG1", np.float64),
-                    ("PANG2", np.float64),
-                    ("UVDIST", np.float64),
+                    ("PANG1", float64),
+                    ("PANG2", float64),
+                    ("UVDIST", float64),
                     ("MATRICES", np.complex64, 12 * nchPlot),
                 ]
             )
