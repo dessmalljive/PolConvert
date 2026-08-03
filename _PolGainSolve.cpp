@@ -183,7 +183,7 @@ static struct PyModuleDef pc_module_def = {
 PyMODINIT_FUNC PyInit__PolGainSolve(void)
 {
     PyObject *m = PyModule_Create(&pc_module_def);
-  //  import_array();
+    import_array();
   //  (void)gsl_set_error_handler(gsl_death);
     return(m);
 }
@@ -604,9 +604,9 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
   TAvg = (double) PyInt_AsLong(PyList_GetItem(solints,1));
   SolAlgor = (int) PyInt_AsLong(PyList_GetItem(solints,0));
 
-  Twins[0] = (int *)PyArray_DATA(PyList_GetItem(flagBas,0));
-  Twins[1] = (int *)PyArray_DATA(PyList_GetItem(flagBas,1));
-  Ntwin = PyArray_DIM(PyList_GetItem(flagBas,0),0);
+  Twins[0] = (int *)PyArray_DATA((PyArrayObject *)PyList_GetItem(flagBas,0));
+  Twins[1] = (int *)PyArray_DATA((PyArrayObject *)PyList_GetItem(flagBas,1));
+  Ntwin = PyArray_DIM((PyArrayObject *)PyList_GetItem(flagBas,0),0);
 
   sprintf(message,"There are %i baselines to flag\n",Ntwin);
   fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);  
@@ -617,11 +617,11 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
   AddParHand = RelWeight>0.0;
   AddCrossHand = true;
 
-  Lant = (int *)PyArray_DATA(linant);
-  Nlin = PyArray_DIM(linant,0);
+  Lant = (int *)PyArray_DATA((PyArrayObject *)linant);
+  Nlin = PyArray_DIM((PyArrayObject *)linant,0);
 
-  CalAnts = (int *)PyArray_DATA(calant);
-  NCalAnt = PyArray_DIM(calant,0);
+  CalAnts = (int *)PyArray_DATA((PyArrayObject *)calant);
+  NCalAnt = PyArray_DIM((PyArrayObject *)calant,0);
 
   
   int i,j,k,l;
@@ -1404,7 +1404,7 @@ int i,j,k;
 //  long dims[1];
 //  dims[0] = (long) Nchan[k];
 //  npy_intp dims = Nchan[k];
-  double *copyFreq =  (double *)PyArray_DATA(FreqsObj); // new double[Nchan[k]];
+  double *copyFreq =  (double *)PyArray_DATA((PyArrayObject *)FreqsObj); // new double[Nchan[k]];
 
   for (j=0; j<Nchan[k]; j++){
     copyFreq[j] = Frequencies[k][j];
@@ -1477,7 +1477,7 @@ static PyObject *SetFringeRates(PyObject *self, PyObject *args) {
   NantFix = (int) PyList_Size(antList);
 
   for(k=0;k<4;k++){
-    rates[k] = (double *) PyArray_DATA(ratesArr);
+    rates[k] = (double *) PyArray_DATA((PyArrayObject *)ratesArr);
     for (i=0; i<NCalAnt; i++){
       Rates[k][cIF][i][cScan] = 0.0;
     };
@@ -2300,7 +2300,7 @@ static PyObject *SetFit(PyObject *self, PyObject *args) {
   T1 = Times[0][NVis[0]-1];
   DT = TAvg;
 
-  feedAngle = (double *)PyArray_DATA(feedPy);
+  feedAngle = (double *)PyArray_DATA((PyArrayObject *)feedPy);
 
   NIFComp = (int) PyList_Size(IFlist);
   doIF = new int[NIFComp];
@@ -2453,7 +2453,7 @@ static PyObject *GetChi2(PyObject *self, PyObject *args) {
   double RefNu = Frequencies[doIF[0]][0];
 
 // Memory to store the current gain ratios:
-  CrossG = (double *) PyArray_DATA(pars);
+  CrossG = (double *) PyArray_DATA((PyArrayObject *)pars);
 
 
 

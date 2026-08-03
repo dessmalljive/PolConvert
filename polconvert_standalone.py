@@ -68,6 +68,7 @@ try:
     mypath = os.path.dirname(__file__)
     sys.path.append(mypath)
     import _PolConvert as PC
+    import _getAntInfo as gA
 
     goodclib = True
     print("\nC++ shared library loaded successfully (first try)\n")
@@ -82,6 +83,7 @@ except:
 if not goodclib:
     try:
         import _PolConvert as PC
+        import _getAntInfo as gA
 
         goodclib = True
         print("\nC++ shared library loaded successfully (2nd try)\n")
@@ -93,6 +95,7 @@ if not goodclib:
 if not goodclib:
     try:
         import _PolConvert as PC
+        import _getAntInfo as gA
 
         goodclib = True
         print("\nC++ shared library loaded successfully (3rd try)\n")
@@ -245,8 +248,8 @@ def polconvert(
         OFF.close()
 
     ## Set to non-ALMA:
-    #if len(ALMAstuff) == 0:
-    #    PC.setPCMode(0)
+    if len(ALMAstuff) == 0:
+        PC.setPCMode(0)
 
     #  amp_norm=0.0
 
@@ -608,7 +611,6 @@ def polconvert(
             ffile.close()
 
             # THESE LINES FAIL IF ORBPARM IS PRESENT IN ARRAY GEOMETRY!
-            import _getAntInfo as gA
 
             success = gA.getAntInfo(IDI)
             if success != 0:
@@ -2177,12 +2179,12 @@ def polconvert(
             dtype = np.dtype(
                 [
                     ("FILE", np.int32),
-                    ("JDT", float64),
+                    ("JDT", float),
                     ("ANT1", np.int32),
                     ("ANT2", np.int32),
-                    ("PANG1", float64),
-                    ("PANG2", float64),
-                    ("UVDIST", float64),
+                    ("PANG1", float),
+                    ("PANG2", float),
+                    ("UVDIST", float),
                     ("MATRICES", np.complex64, 12 * nchPlot),
                 ]
             )

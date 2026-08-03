@@ -59,14 +59,15 @@
  
 //z straight up merge
 //#define IVAN_MERGE  0
-
-
+//
 
 
 #include <Python.h>
 // compiler warning that we use a deprecated NumPy API
 // #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#define NO_IMPORT_ARRAY
+// NOTE: do NOT define NO_IMPORT_ARRAY here. This is the only translation unit
+// in the module that uses the NumPy C-API, so it must own the API table and
+// call import_array() in its module init (otherwise PyArray_* segfaults).
 #if PY_MAJOR_VERSION >= 3
 #define NPY_NO_DEPRECATED_API 0x0
 #endif
@@ -89,6 +90,8 @@
 #include "./CalTable.h"
 #include "./Weighter.h"
 #include <sstream> 
+
+
 
 
 
@@ -159,6 +162,7 @@ PyMODINIT_FUNC PyInit__PolConvert(void)
 {
     PCMode = true;
     PyObject *m = PyModule_Create(&pc_module_def);
+    import_array();
     return(m);
 }
 
@@ -342,8 +346,8 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
   int NBadTimes = 0;
   if(PCMode){
 // Time ranges with unphased signal:
-    BadTimes = (double *)PyArray_DATA(timeranges);
-    NBadTimes = (int) PyArray_DIM(timeranges,0);
+    BadTimes = (double *)PyArray_DATA((PyArrayObject *)timeranges);
+    NBadTimes = (int) PyArray_DIM((PyArrayObject *)timeranges,0);
   };
 
 
@@ -356,13 +360,13 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     SWINFreqs = new double*[SWINnIF];
     SWINnchan = new int[SWINnIF];
     for (ii=0; ii<SWINnIF; ii++) {
-      SWINFreqs[ii] =  (double *)PyArray_DATA(PyList_GetItem(metadata,ii));
-      SWINnchan[ii] = ((int *) PyArray_DIMS(PyList_GetItem(metadata,ii)))[0] ;
+      SWINFreqs[ii] =  (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(metadata,ii));
+      SWINnchan[ii] = ((int *) PyArray_DIMS((PyArrayObject *)PyList_GetItem(metadata,ii)))[0] ;
     };
     jd0 = PyFloat_AsDouble(PyList_GetItem(metadata,SWINnIF));
   };
 
-  int *ACorrs = (int *)PyArray_DATA(ACorrPy);
+  int *ACorrs = (int *)PyArray_DATA((PyArrayObject *)ACorrPy);
 
 // Do we just test?
   if (doTest) {
@@ -377,8 +381,8 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 
 
 // Times to analyse:
-  double *plRange = (double *)PyArray_DATA(plotRange);
-  double *doRange = (double *)PyArray_DATA(Range);
+  double *plRange = (double *)PyArray_DATA((PyArrayObject *)plotRange);
+  double *doRange = (double *)PyArray_DATA((PyArrayObject *)Range);
 
 
 
@@ -397,7 +401,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     for (i=0;i<NPGain;i++){
       PrioriGains[k][i] = new cplx32f*[NPIF];
       for (j=0; j<NPIF; j++){
-        PrioriGains[k][i][j] = (cplx32f *) PyArray_DATA(PyList_GetItem(PyList_GetItem(PyList_GetItem(XYaddObj,k),i),j));
+        PrioriGains[k][i][j] = (cplx32f *) PyArray_DATA((PyArrayObject *)PyList_GetItem(PyList_GetItem(PyList_GetItem(XYaddObj,k),i),j));
       };
     };
   };
@@ -406,16 +410,16 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 
 // Array and Observation Geometry:
   ArrayGeometry *Geometry = new ArrayGeometry;
-  double *AntCoordArr = (double *)PyArray_DATA(antcoordObj);
+  double *AntCoordArr = (double *)PyArray_DATA((PyArrayObject *)antcoordObj);
 
-  int *AntMountArr = (int *)PyArray_DATA(antmountObj);
+  int *AntMountArr = (int *)PyArray_DATA((PyArrayObject *)antmountObj);
 
-  double *SouCoordArr = (double *)PyArray_DATA(PyList_GetItem(soucoordObj,1));
-  double *SouCoordRA = (double *)PyArray_DATA(PyList_GetItem(soucoordObj,0));
+  double *SouCoordArr = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(soucoordObj,1));
+  double *SouCoordRA = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(soucoordObj,0));
 
-    
-  Geometry->NtotSou = (int) PyArray_DIM(PyList_GetItem(soucoordObj,1),0);
-  Geometry->NtotAnt = (int) PyArray_DIM(antcoordObj,0);
+
+  Geometry->NtotSou = (int) PyArray_DIM((PyArrayObject *)PyList_GetItem(soucoordObj,1),0);
+  Geometry->NtotAnt = (int) PyArray_DIM((PyArrayObject *)antcoordObj,0);
 
   int Nbas = Geometry->NtotAnt*(Geometry->NtotAnt-1)/2;
 
@@ -483,9 +487,9 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 /////////////////////////////////
 /// SPECIFIC FOR ALMA:
   if(PCMode){
-    time0 = (double *)PyArray_DATA(PyList_GetItem(asdmTimes,0));
-    time1 = (double *)PyArray_DATA(PyList_GetItem(asdmTimes,1));
-    nASDMEntries = ((long *) PyArray_DIMS(PyList_GetItem(asdmTimes,0)))[0];  
+    time0 = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(asdmTimes,0));
+    time1 = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(asdmTimes,1));
+    nASDMEntries = ((long *) PyArray_DIMS((PyArrayObject *)PyList_GetItem(asdmTimes,0)))[0];
 
 ///////////
 // Useful to determine which ALMA antennas are phased up at each time:
@@ -494,11 +498,11 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
   ASDMtimes = new double*[nPhase];
   nASDMtimes = new long[nPhase];
   // refAnts may be used uninitialized
-  ALMARef = (int *)PyArray_DATA(refAnts);
+  ALMARef = (int *)PyArray_DATA((PyArrayObject *)refAnts);
   for (ii=0; ii<nPhase; ii++){
     nASDMtimes[ii] = (long)PyInt_AsLong(PyList_GetItem(nphtimes,ii));
     ASDMant[ii] = (int)PyInt_AsLong(PyList_GetItem(allphants,ii));
-    ASDMtimes[ii] = (double *)PyArray_DATA(PyList_GetItem(phanttimes,ii));
+    ASDMtimes[ii] = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(phanttimes,ii));
   };
   // BadTimes not initialized
   ALMAWeight = new Weighter(nPhase,nASDMtimes,nASDMEntries,ASDMant,ASDMtimes,ALMARef,time0,time1,BadTimes, NBadTimes, logFile);
@@ -542,7 +546,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
   bool *XYSWAP = new bool[nALMA];
 
   for (i=0;i<nALMA;i++){
-    isLinear[i] = (bool *)PyArray_DATA(PyList_GetItem(isLinearObj,i));
+    isLinear[i] = (bool *)PyArray_DATA((PyArrayObject *)PyList_GetItem(isLinearObj,i));
     almanums[i] = (int)PyInt_AsLong(PyList_GetItem(antnum,i));
 
     XYSWAP[i] = (bool)PyInt_AsLong(PyList_GetItem(SWAP,i));
@@ -582,8 +586,8 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 if(PCMode){
 
   for (i=0;i<nALMA;i++){
-    nchanDt[i] = PyArray_DIM(PyList_GetItem(PyList_GetItem(dterms,i),0),0);
-    dtfreqsArr[i] = (double *)PyArray_DATA(PyList_GetItem(PyList_GetItem(dterms,i),0));
+    nchanDt[i] = PyArray_DIM((PyArrayObject *)PyList_GetItem(PyList_GetItem(dterms,i),0),0);
+    dtfreqsArr[i] = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(PyList_GetItem(dterms,i),0));
     dttimesArr[i] = new double*[nsumArr[i]];
     ndttimeArr[i] = new long[nsumArr[i]];
     dtflag[i] = new bool*[nsumArr[i]];
@@ -595,23 +599,23 @@ if(PCMode){
       dttimesArr[i][j] = new double[1];
       dttimesArr[i][j][0] = 0.0;
       ndttimeArr[i][j] = 1;
-      dtermsArrR1[i][j] = (double *)PyArray_DATA(
+      dtermsArrR1[i][j] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(PyList_GetItem(dterms,i),j+1),0));
-      dtermsArrI1[i][j] = (double *)PyArray_DATA(
+      dtermsArrI1[i][j] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(PyList_GetItem(dterms,i),j+1),1));
-      dtermsArrR2[i][j] = (double *)PyArray_DATA(
+      dtermsArrR2[i][j] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(PyList_GetItem(dterms,i),j+1),2));
-      dtermsArrI2[i][j] = (double *)PyArray_DATA(
+      dtermsArrI2[i][j] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(PyList_GetItem(dterms,i),j+1),3));
-      dtflag[i][j] = (bool *)PyArray_DATA(
+      dtflag[i][j] = (bool *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(PyList_GetItem(dterms,i),j+1),4));
     };
 
     for (j=0; j<ngainTabs[i]; j++){
       tempPy = PyList_GetItem(PyList_GetItem(gains,i),j);
       kind[i][j] = (int)PyInt_AsLong(PyList_GetItem(PyList_GetItem(ikind,i),j));
-      nchanArr[i][j] = PyArray_DIM(PyList_GetItem(tempPy,0),0);
-      freqsArr[i][j] = (double *)PyArray_DATA(PyList_GetItem(tempPy,0));
+      nchanArr[i][j] = PyArray_DIM((PyArrayObject *)PyList_GetItem(tempPy,0),0);
+      freqsArr[i][j] = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(tempPy,0));
       ntimeArr[i][j] = new long[nsumArr[i]];
       timesArr[i][j] = new double*[nsumArr[i]];
       gainsArrR1[i][j] = new double*[nsumArr[i]];
@@ -621,18 +625,18 @@ if(PCMode){
       gainflag[i][j] = new bool*[nsumArr[i]];
 
       for (k=0; k<nsumArr[i]; k++){
-        ntimeArr[i][j][k] = PyArray_DIM(PyList_GetItem(PyList_GetItem(tempPy,k+1),0),0);
-        timesArr[i][j][k] = (double *)PyArray_DATA(
+        ntimeArr[i][j][k] = PyArray_DIM((PyArrayObject *)PyList_GetItem(PyList_GetItem(tempPy,k+1),0),0);
+        timesArr[i][j][k] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(tempPy,k+1),0));
-        gainsArrR1[i][j][k] = (double *)PyArray_DATA(
+        gainsArrR1[i][j][k] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(tempPy,k+1),1));
-        gainsArrI1[i][j][k] = (double *)PyArray_DATA(
+        gainsArrI1[i][j][k] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(tempPy,k+1),2));
-        gainsArrR2[i][j][k] = (double *)PyArray_DATA(
+        gainsArrR2[i][j][k] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(tempPy,k+1),3));
-        gainsArrI2[i][j][k] = (double *)PyArray_DATA(
+        gainsArrI2[i][j][k] = (double *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(tempPy,k+1),4));
-        gainflag[i][j][k] = (bool *)PyArray_DATA(
+        gainflag[i][j][k] = (bool *)PyArray_DATA((PyArrayObject *)
               PyList_GetItem(PyList_GetItem(tempPy,k+1),5));
       };
     };

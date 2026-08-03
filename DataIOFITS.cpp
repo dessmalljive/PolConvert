@@ -220,7 +220,7 @@ void DataIOFITS::saveCirculars(std::string inputfile) {
 
 
     for (ii=0; ii<nDoIF; ii++){
-      sprintf(message,"POLCONVERT.FRINGE/OTHERS.FRINGE_IF%li",DoIF[ii]+1);
+      sprintf(message,"POLCONVERT.FRINGE/OTHERS.FRINGE_IF%i",DoIF[ii]+1);
       circFile[ii] = fopen(message,"wb");
       fwrite(&Freqs[DoIF[ii]].Nchan,sizeof(int),1,circFile[ii]);
       fwrite(Freqvals[DoIF[ii]],Freqs[DoIF[ii]].Nchan*sizeof(double),1,circFile[ii]);
