@@ -126,6 +126,10 @@ PyMODINIT_FUNC init_getAntInfo(void)
 
 
 int Nants = 1;
+// Coords/Mounts are handed off to NumPy as non-owning array buffers (via
+// PyArray_SimpleNewFromData, without NPY_ARRAY_OWNDATA) in getCoords()/
+// getMounts() below, so they must remain plain, unmanaged heap pointers
+// rather than RAII containers, to avoid a use-after-free.
 double *Coords = new double[3];
 int *Mounts = new int[1];
 
@@ -176,8 +180,8 @@ static PyObject *getAntInfo(PyObject *self, PyObject *args){
   Nants = (int) lAux;
 
 // Allocate memory:
-  delete Coords;
-  delete Mounts;
+  delete[] Coords;
+  delete[] Mounts;
 
   Coords = new double[3*Nants];
   Mounts = new int[Nants];
@@ -232,7 +236,7 @@ static PyObject *getCoords(PyObject *self, PyObject *args){
 // Build numpy array:
   PyObject *CoordArr;
   int nd = 2;
-  npy_intp* CD = new npy_intp[nd];
+  npy_intp CD[2];
   CD[0] = Nants; CD[1] = 3;
   CoordArr = PyArray_SimpleNewFromData(nd, CD, NPY_DOUBLE, (void*) Coords);
   return CoordArr;
@@ -251,7 +255,7 @@ static PyObject *getMounts(PyObject *self, PyObject *args){
 // Build numpy array:
   PyObject *MountArr;
   int nd = 1;
-  npy_intp* MD = new npy_intp[nd];
+  npy_intp MD[1];
   MD[0] = Nants;
   MountArr = PyArray_SimpleNewFromData(nd, MD, NPY_INT, (void*) Mounts);
   return MountArr;

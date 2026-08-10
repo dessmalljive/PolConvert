@@ -47,6 +47,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <complex>
 #include <sstream> 
 #include <iomanip>
+#include <vector>
+#include "XTHelpers.h"
 
 #define EPSILON 0.00001
 
@@ -168,8 +170,8 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
 
 
   int NIF = 0;
-  double *FRINI;
-  double *FREND;
+  xt::xtensor<double,1> FRINI;
+  xt::xtensor<double,1> FREND;
   double AuxF0, AuxF1, AuxF2;
   int i;
   
@@ -182,8 +184,8 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
     
     NIF = PyList_Size(PyFreqs);
     if (NIF>IFoffset){NIF = IFoffset;};
-    FRINI = new double[NIF];
-    FREND = new double[NIF];
+    FRINI = xt_alloc<double>(NIF);
+    FREND = xt_alloc<double>(NIF);
     
     for (i=0;i<NIF;i++){
       AuxF0 = PyFloat_AsDouble( PyList_GetItem(PyFreqs,i) );
@@ -224,8 +226,8 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
 
 // LISTs OF FREQUENCIES TO ZERO:
   int nIFZero = PyList_Size(pZero);
-  double *IFini = new double[nIFZero];
-  double *IFend = new double[nIFZero];
+  xt::xtensor<double,1> IFini = xt_alloc<double>(nIFZero);
+  xt::xtensor<double,1> IFend = xt_alloc<double>(nIFZero);
   for (i=0;i<nIFZero;i++){
     IFini[i] = (int)PyFloat_AsDouble( PyList_GetItem(PyList_GetItem(pZero,i),0) );
     IFend[i] = (int)PyFloat_AsDouble( PyList_GetItem(PyList_GetItem(pZero,i),1) );
@@ -237,20 +239,18 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
   std::string TelName, line, auxStr;
   std::istringstream tempStr, auxTempStr;
 
-  cplx64d **PCalsX= new cplx64d*[BUFF];
-  cplx64d **PCalsY= new cplx64d*[BUFF]; 
-  bool **goodX = new bool*[BUFF];
-  bool **goodY = new bool*[BUFF];
+  std::vector<xt::xtensor<cplx64d,1>> PCalsX(BUFF), PCalsY(BUFF);
+  std::vector<xt::xtensor<bool,1>> goodX(BUFF), goodY(BUFF);
 
-  double **PCalTimes= new double*[BUFF];
-  double *PCalNus= new double[BUFF];
-  bool *ZeroIt = new bool[BUFF];
-  int *NTimes= new int[BUFF];
+  std::vector<xt::xtensor<double,1>> PCalTimes(BUFF);
+  xt::xtensor<double,1> PCalNus = xt_alloc<double>(BUFF);
+  xt::xtensor<bool,1> ZeroIt = xt_alloc<bool>(BUFF);
+  xt::xtensor<int,1> NTimes = xt_alloc<int>(BUFF);
 
   bool RepNu;
 
   int NuOver = 1;
-  int *TOver = new int[BUFF];
+  xt::xtensor<int,1> TOver = xt_alloc<int>(BUFF);
   for(i=0;i<BUFF;i++){
     TOver[i] = 1;
   };
@@ -301,15 +301,15 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
                    if(NTone+1>BUFF*NuOver){
                     // printf("Resizing Tones\n");fflush(stdout);
                      NuOver +=1;
-                     ZeroIt = (bool *) realloc((void *)ZeroIt, BUFF*NuOver*sizeof(bool));
-                     PCalNus = (double *) realloc((void *)PCalNus, BUFF*NuOver*sizeof(double));
-                     PCalsX = (cplx64d **) realloc((void *)PCalsX,  BUFF*NuOver*sizeof(cplx64d*));
-                     PCalsY = (cplx64d **) realloc((void *)PCalsY,  BUFF*NuOver*sizeof(cplx64d*));
-                     PCalTimes = (double **) realloc((void *)PCalTimes, BUFF*NuOver*sizeof(double*));
-                     goodX = (bool **) realloc((void *)goodX,  BUFF*NuOver*sizeof(bool*));
-                     goodY = (bool **) realloc((void *)goodY,  BUFF*NuOver*sizeof(bool*));
-                     NTimes = (int *) realloc((void *)NTimes, BUFF*NuOver*sizeof(int));
-                     TOver = (int *) realloc((void *)TOver,  BUFF*NuOver*sizeof(int));
+                     xt_grow(ZeroIt, BUFF*NuOver);
+                     xt_grow(PCalNus, BUFF*NuOver);
+                     PCalsX.resize(BUFF*NuOver);
+                     PCalsY.resize(BUFF*NuOver);
+                     PCalTimes.resize(BUFF*NuOver);
+                     goodX.resize(BUFF*NuOver);
+                     goodY.resize(BUFF*NuOver);
+                     xt_grow(NTimes, BUFF*NuOver);
+                     xt_grow(TOver, BUFF*NuOver);
                      for(l=0;l<BUFF;l++){TOver[BUFF*(NuOver-1)+l] = 1;};
                    };
 
@@ -320,11 +320,11 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
                      if (PCalNus[NTone]>=IFini[j] && PCalNus[NTone]<=IFend[j]){ZeroIt[NTone] = true; break;};
                    };                 
   
-                   PCalTimes[NTone] = new double[BUFF];
-                   PCalsX[NTone] = new cplx64d[BUFF];
-                   PCalsY[NTone] = new cplx64d[BUFF];
-                   goodX[NTone] = new bool[BUFF];
-                   goodY[NTone] = new bool[BUFF];
+                   PCalTimes[NTone] = xt_alloc<double>(BUFF);
+                   PCalsX[NTone] = xt_alloc<cplx64d>(BUFF);
+                   PCalsY[NTone] = xt_alloc<cplx64d>(BUFF);
+                   goodX[NTone] = xt_alloc<bool>(BUFF);
+                   goodY[NTone] = xt_alloc<bool>(BUFF);
                    NTimes[NTone]=0;
 
                    j=NTone; NTone+=1; 
@@ -342,11 +342,11 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
                   if(NTimes[j]+1>BUFF*TOver[j]){
                    //  printf("Resizing Times\n");fflush(stdout);
                     TOver[j] += 1;
-                    PCalTimes[j] = (double *) realloc((void *)PCalTimes[j],BUFF*TOver[j]*sizeof(double));
-                    PCalsX[j] = (cplx64d *) realloc((void *)PCalsX[j],BUFF*TOver[j]*sizeof(cplx64d));
-                    PCalsY[j] = (cplx64d *) realloc((void *)PCalsY[j],BUFF*TOver[j]*sizeof(cplx64d));
-                    goodX[j] = (bool *) realloc((void *)goodX[j],BUFF*TOver[j]*sizeof(bool));
-                    goodY[j] = (bool *) realloc((void *)goodY[j],BUFF*TOver[j]*sizeof(bool));
+                    xt_grow(PCalTimes[j],BUFF*TOver[j]);
+                    xt_grow(PCalsX[j],BUFF*TOver[j]);
+                    xt_grow(PCalsY[j],BUFF*TOver[j]);
+                    xt_grow(goodX[j],BUFF*TOver[j]);
+                    xt_grow(goodY[j],BUFF*TOver[j]);
                   };
 
                   PCalTimes[j][NTimes[j]] = Tbuf;
@@ -380,14 +380,14 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
  // printf("NTONE: %i\n",NTone);fflush(stdout);
 
 // Variables to store final results:
-  double *Phases = new double[NTone];
-  double *Amps = new double[NTone];
+  xt::xtensor<double,1> Phases = xt_alloc<double>(NTone);
+  xt::xtensor<double,1> Amps = xt_alloc<double>(NTone);
   double AmpsX, AmpsY;
 
-  double *Delays = new double[NTone];
-  double *RefPhases = new double[NTone];
-  double *RefFreqs = new double[NTone];
-  int *IF = new int[NTone];   
+  xt::xtensor<double,1> Delays = xt_alloc<double>(NTone);
+  xt::xtensor<double,1> RefPhases = xt_alloc<double>(NTone);
+  xt::xtensor<double,1> RefFreqs = xt_alloc<double>(NTone);
+  xt::xtensor<int,1> IF = xt_alloc<int>(NTone);   
 
 // Auxiliary variables:
 //int FirstGood = -1;
@@ -612,7 +612,7 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
   double DNu = PCalNus[1] - PCalNus[0];
 //  double FracP, IntP;
   double IFDel00, IFDel01, IFDel0, IFDel1, NtoneIF;
-  double *NWrap = new double[NTone];
+  xt::xtensor<double,1> NWrap = xt_alloc<double>(NTone);
   cplx64d AvPhasor;
   double fitDelay, IFPhase;
 
@@ -621,7 +621,7 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
  
    if (NIF==0){
      int AuxIF = 0;
-     FRINI = new double[NTone]; FREND = new double[NTone];
+     FRINI = xt_alloc<double>(NTone); FREND = xt_alloc<double>(NTone);
      for (i=0; i<NTone-1; i++){
         if(PCalNus[i+1]-PCalNus[i] > 1.01*DNu){
           FRINI[NIF] = PCalNus[AuxIF]; FREND[NIF] = PCalNus[i]; NIF += 1; AuxIF = i+1;
@@ -660,7 +660,7 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
 //// LOOP OVER IFS:  
 
  int nUsableTones;
- int *usableTones = new int[NTone];
+ xt::xtensor<int,1> usableTones = xt_alloc<int>(NTone);
     
  for (k=0; k<NIF; k++){
  
@@ -745,28 +745,9 @@ static PyObject *XPCalMF(PyObject *self, PyObject *args)
 
   fflush(outFile);
 
- // Release memory:
-  for (i=0; i<NTone; i++){
-    //printf(" DELETING %i\n",i);fflush(stdout);    
-    delete[] PCalsX[i];
-    delete[] PCalsY[i];
-    delete[] PCalTimes[i];
-    delete[] goodX[i];
-    delete[] goodY[i];
-  };
-    delete[] PCalsX;
-    delete[] PCalsY;
-    delete[] PCalTimes;
-    delete[] goodX;
-    delete[] goodY;
-    delete[] PCalNus;
-    delete[] Phases;
-    delete[] Amps;
-    delete[] Delays;
-    delete[] RefPhases;
-    delete[] RefFreqs;
-    delete[] NTimes;
-    delete[] ZeroIt;
+ // PCalsX/PCalsY/PCalTimes/goodX/goodY/PCalNus/Phases/Amps/Delays/
+ // RefPhases/RefFreqs/NTimes/ZeroIt are xtensor/std::vector-managed now
+ // and free themselves; no manual release needed.
 
 /*
   // Arrange data for output to Python:

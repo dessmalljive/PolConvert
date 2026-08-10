@@ -28,7 +28,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <fstream>
 #include <math.h>
 #include <complex>
+#include <array>
+#include <vector>
 #include "DataIO.h"
+#include "XTHelpers.h"
 
 
 
@@ -110,19 +113,19 @@ class DataIOSWIN: public DataIO {
     int AutoCorrMedianFilter;
     int IFOffset;
     int nDoIF;
-    int *DoIF;
+    int *DoIF; // borrowed (not owned by DataIOSWIN)
     FILE *logFile;
     char message[512];
     int nfiles;
-    std::ifstream *olddifx;
-    std::fstream *newdifx;
+    std::vector<std::ifstream> olddifx;
+    std::vector<std::fstream> newdifx;
     bool isOverWrite, doWriteCirc, canPlot, isAutoCorr, isTwoLinear, doParang;
     bool debugNewIF, convisok;
     long currEntries[MAXIF][4], nrec;
-    long *filesizes;
-    std::complex<float> *currentVis[4] ;
-    std::complex<float> *bufferVis[4] ;
-    std::complex<float> *auxVis[4] ;
+    xt::xtensor<long,1> filesizes;
+    std::array<xt::xtensor<std::complex<float>,1>,4> currentVis ;
+    std::array<xt::xtensor<std::complex<float>,1>,4> bufferVis ;
+    std::array<xt::xtensor<std::complex<float>,1>,4> auxVis ;
 
-    Record *Records ;
+    std::vector<Record> Records ;
 };

@@ -89,7 +89,10 @@
 #include "./DataIOSWIN.h"
 #include "./CalTable.h"
 #include "./Weighter.h"
-#include <sstream> 
+#include <sstream>
+#include <vector>
+#include <xtensor/xtensor.hpp>
+#include <xtensor/xarray.hpp> 
 
 
 
@@ -320,11 +323,12 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
   fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
 
   int nSWINFiles = 1; // compiler warning
-  std::string* SWINFiles, outputfits;
+  std::vector<std::string> SWINFiles;
+  std::string outputfits;
 
   if (isSWIN) {
     nSWINFiles = (int) PyList_Size(IDI) ;
-    SWINFiles = new std::string[nSWINFiles];
+    SWINFiles.resize(nSWINFiles);
     for (ii=0; ii<nSWINFiles; ii++){
       SWINFiles[ii] = PyString_AsString(PyList_GetItem(IDI,ii));
       sprintf(message,"file[%i] %s\n\n",ii,SWINFiles[ii].c_str());
@@ -333,7 +337,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     sprintf(message,"\nCONVERTING %i SWIN (DiFX) FILES\n\n",nSWINFiles);
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
   } else {
-    SWINFiles = new std::string[nSWINFiles];  // compiler warning
+    SWINFiles.resize(nSWINFiles);  // compiler warning
     outputfits = PyString_AsString(IDI);
     sprintf(message,"\nOUTPUT FITS-IDI FILE:  %s \n\n",outputfits.c_str());
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
@@ -352,13 +356,13 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 
 
 // If SWIN, read the frequency channels from the metadata: 
-  int *SWINnchan = nullptr; 
-  double **SWINFreqs = nullptr; 
+  xt::xtensor<int,1> SWINnchan; 
+  xt::xtensor<double*,1> SWINFreqs; 
   double jd0 = 0.0; 
 
   if (isSWIN) {
-    SWINFreqs = new double*[SWINnIF];
-    SWINnchan = new int[SWINnIF];
+    SWINFreqs = xt_alloc<double*>(SWINnIF);
+    SWINnchan = xt_alloc<int>(SWINnIF);
     for (ii=0; ii<SWINnIF; ii++) {
       SWINFreqs[ii] =  (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(metadata,ii));
       SWINnchan[ii] = ((int *) PyArray_DIMS((PyArrayObject *)PyList_GetItem(metadata,ii)))[0] ;
@@ -395,11 +399,11 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
   NPIF = PyList_Size(PyList_GetItem(PyList_GetItem(XYaddObj,0),0));
   sprintf(message,"Array sizes: NPGain = %i NPIF = %i\n", NPGain, NPIF);
   fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
-  cplx32f ****PrioriGains = new cplx32f***[nSWINFiles]; 
+  std::vector<std::vector<xt::xtensor<cplx32f*,1>>> PrioriGains(nSWINFiles);
   for(k=0;k<nSWINFiles;k++){
-    PrioriGains[k] = new cplx32f **[NPGain];
+    PrioriGains[k].resize(NPGain);
     for (i=0;i<NPGain;i++){
-      PrioriGains[k][i] = new cplx32f*[NPIF];
+      PrioriGains[k][i] = xt_alloc<cplx32f*>(NPIF);
       for (j=0; j<NPIF; j++){
         PrioriGains[k][i][j] = (cplx32f *) PyArray_DATA((PyArrayObject *)PyList_GetItem(PyList_GetItem(PyList_GetItem(XYaddObj,k),i),j));
       };
@@ -427,20 +431,16 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     Nbas, Geometry->NtotAnt, Geometry->NtotSou);
   fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
 
-  Geometry->BaseLine[0] = new double[Nbas+Geometry->NtotAnt+1];
-  Geometry->BaseLine[1] = new double[Nbas+Geometry->NtotAnt+1];
-  Geometry->BaseLine[2] = new double[Nbas+Geometry->NtotAnt+1];
-  Geometry->SinDec = new double[Geometry->NtotSou];
-  Geometry->CosDec = new double[Geometry->NtotSou];
-  Geometry->RA = new double[Geometry->NtotSou];
-  Geometry->AntLon = new double[Geometry->NtotAnt];
-  Geometry->Mount = new int[Geometry->NtotAnt];
-  Geometry->Lat = new double[Geometry->NtotAnt];
-  Geometry->BasNum = new int*[Geometry->NtotAnt];
-
-  for (i=0; i<Geometry->NtotAnt;i++){
-    Geometry->BasNum[i] = new int[Geometry->NtotAnt];
-  };
+  Geometry->BaseLine[0] = xt_alloc<double>(Nbas+Geometry->NtotAnt+1);
+  Geometry->BaseLine[1] = xt_alloc<double>(Nbas+Geometry->NtotAnt+1);
+  Geometry->BaseLine[2] = xt_alloc<double>(Nbas+Geometry->NtotAnt+1);
+  Geometry->SinDec = xt_alloc<double>(Geometry->NtotSou);
+  Geometry->CosDec = xt_alloc<double>(Geometry->NtotSou);
+  Geometry->RA = xt_alloc<double>(Geometry->NtotSou);
+  Geometry->AntLon = xt_alloc<double>(Geometry->NtotAnt);
+  Geometry->Mount = xt_alloc<int>(Geometry->NtotAnt);
+  Geometry->Lat = xt_alloc<double>(Geometry->NtotAnt);
+  Geometry->BasNum = xt_alloc<int>(Geometry->NtotAnt,Geometry->NtotAnt);
 
 
   int Inum = 1, I3, J3;
@@ -453,8 +453,8 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     Geometry->Mount[i] = AntMountArr[i];
     for (j=i; j<Geometry->NtotAnt;j++){
       J3 = 3*j;
-      Geometry->BasNum[i][j] = Inum;
-      Geometry->BasNum[j][i] = -Inum;
+      Geometry->BasNum(i,j) = Inum;
+      Geometry->BasNum(j,i) = -Inum;
       Geometry->BaseLine[0][Inum] = (AntCoordArr[I3] - AntCoordArr[J3]);
       Geometry->BaseLine[1][Inum] = (AntCoordArr[I3+1] - AntCoordArr[J3+1]);
       Geometry->BaseLine[2][Inum] = (AntCoordArr[I3+2] - AntCoordArr[J3+2]);
@@ -474,9 +474,10 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 // Read info for linear-polarization antennas:
   double *time0, *time1;
   long nASDMEntries;
-  int *ASDMant, *ALMARef;
-  double **ASDMtimes;
-  long *nASDMtimes;
+  xt::xtensor<int,1> ASDMant;
+  int *ALMARef;
+  xt::xtensor<double*,1> ASDMtimes;
+  xt::xtensor<long,1> nASDMtimes;
   Weighter *ALMAWeight;
 
 
@@ -494,9 +495,9 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 ///////////
 // Useful to determine which ALMA antennas are phased up at each time:
 
-  ASDMant = new int[nPhase];
-  ASDMtimes = new double*[nPhase];
-  nASDMtimes = new long[nPhase];
+  ASDMant = xt_alloc<int>(nPhase);
+  ASDMtimes = xt_alloc<double*>(nPhase);
+  nASDMtimes = xt_alloc<long>(nPhase);
   // refAnts may be used uninitialized
   ALMARef = (int *)PyArray_DATA((PyArrayObject *)refAnts);
   for (ii=0; ii<nPhase; ii++){
@@ -505,7 +506,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
     ASDMtimes[ii] = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(phanttimes,ii));
   };
   // BadTimes not initialized
-  ALMAWeight = new Weighter(nPhase,nASDMtimes,nASDMEntries,ASDMant,ASDMtimes,ALMARef,time0,time1,BadTimes, NBadTimes, logFile);
+  ALMAWeight = new Weighter(nPhase,nASDMtimes.data(),nASDMEntries,ASDMant.data(),ASDMtimes.data(),ALMARef,time0,time1,BadTimes, NBadTimes, logFile);
 
   } else {  // If ALMA is not used, set weights to dummy:
   ALMAWeight = new Weighter(logFile);
@@ -518,32 +519,35 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 
 
 // ALLOCATE MEMORY
-  int **kind = new int*[nALMA];
-  bool **isLinear = new bool*[nALMA];
-  int *ngainTabs = new int[nALMA];
-  int *almanums = new int[nALMA];
-  int *nsumArr = new int[nALMA];
-  long ***ntimeArr = new long**[nALMA];
-  long **nchanArr = new long*[nALMA];
+// "Arr" 2D/3D members below hold pointers borrowed from NumPy array buffers
+// (via PyArray_DATA); only the outer/index structure is owned here, via
+// xtensor containers and std::vector, instead of raw new[]/delete[].
+  std::vector<xt::xtensor<int,1>> kind(nALMA);
+  xt::xtensor<bool*,1> isLinear = xt_alloc<bool*>(nALMA);
+  xt::xtensor<int,1> ngainTabs = xt_alloc<int>(nALMA);
+  xt::xtensor<int,1> almanums = xt_alloc<int>(nALMA);
+  xt::xtensor<int,1> nsumArr = xt_alloc<int>(nALMA);
+  std::vector<std::vector<xt::xtensor<long,1>>> ntimeArr(nALMA);
+  std::vector<xt::xtensor<long,1>> nchanArr(nALMA);
 
-  double ***freqsArr = new double**[nALMA];
-  double ****timesArr = new double***[nALMA];
-  double ****gainsArrR1 = new double***[nALMA];
-  double ****gainsArrI1 = new double***[nALMA];
-  double ****gainsArrR2 = new double***[nALMA];
-  double ****gainsArrI2 = new double***[nALMA];
-  bool ****gainflag = new bool***[nALMA];
+  std::vector<xt::xtensor<double*,1>> freqsArr(nALMA);
+  std::vector<std::vector<xt::xtensor<double*,1>>> timesArr(nALMA);
+  std::vector<std::vector<xt::xtensor<double*,1>>> gainsArrR1(nALMA);
+  std::vector<std::vector<xt::xtensor<double*,1>>> gainsArrI1(nALMA);
+  std::vector<std::vector<xt::xtensor<double*,1>>> gainsArrR2(nALMA);
+  std::vector<std::vector<xt::xtensor<double*,1>>> gainsArrI2(nALMA);
+  std::vector<std::vector<xt::xtensor<bool*,1>>> gainflag(nALMA);
 
-  long *nchanDt = new long[nALMA];
-  long **ndttimeArr = new long*[nALMA];
-  double **dtfreqsArr = new double*[nALMA];
-  double ***dttimesArr = new double**[nALMA];
-  double ***dtermsArrR1 = new double**[nALMA];
-  double ***dtermsArrI1 = new double**[nALMA];
-  double ***dtermsArrR2 = new double**[nALMA];
-  double ***dtermsArrI2 = new double**[nALMA];
-  bool ***dtflag = new bool**[nALMA];
-  bool *XYSWAP = new bool[nALMA];
+  xt::xtensor<long,1> nchanDt = xt_alloc<long>(nALMA);
+  std::vector<xt::xtensor<long,1>> ndttimeArr(nALMA);
+  xt::xtensor<double*,1> dtfreqsArr = xt_alloc<double*>(nALMA);
+  std::vector<std::vector<xt::xtensor<double,1>>> dttimesArr(nALMA);
+  std::vector<xt::xtensor<double*,1>> dtermsArrR1(nALMA);
+  std::vector<xt::xtensor<double*,1>> dtermsArrI1(nALMA);
+  std::vector<xt::xtensor<double*,1>> dtermsArrR2(nALMA);
+  std::vector<xt::xtensor<double*,1>> dtermsArrI2(nALMA);
+  std::vector<xt::xtensor<bool*,1>> dtflag(nALMA);
+  xt::xtensor<bool,1> XYSWAP = xt_alloc<bool>(nALMA);
 
   for (i=0;i<nALMA;i++){
     isLinear[i] = (bool *)PyArray_DATA((PyArrayObject *)PyList_GetItem(isLinearObj,i));
@@ -561,17 +565,17 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
 // summy values:
     if(PCMode){
       ngainTabs[i] = (int)PyInt_AsLong(PyList_GetItem(ngain,i));
-      kind[i] = new int[ngainTabs[i]];
+      kind[i] = xt_alloc<int>(ngainTabs[i]);
       nsumArr[i] = (int)PyInt_AsLong(PyList_GetItem(nsum,i));
-      ntimeArr[i] = new long*[ngainTabs[i]];
-      nchanArr[i] = new long[ngainTabs[i]];
-      timesArr[i] = new double**[ngainTabs[i]];
-      gainsArrR1[i] = new double**[ngainTabs[i]];
-      gainsArrI1[i] = new double**[ngainTabs[i]];
-      gainsArrR2[i] = new double**[ngainTabs[i]];
-      gainsArrI2[i] = new double**[ngainTabs[i]];
-      gainflag[i] = new bool**[ngainTabs[i]];
-      freqsArr[i] = new double*[ngainTabs[i]];
+      ntimeArr[i].resize(ngainTabs[i]);
+      nchanArr[i] = xt_alloc<long>(ngainTabs[i]);
+      timesArr[i].resize(ngainTabs[i]);
+      gainsArrR1[i].resize(ngainTabs[i]);
+      gainsArrI1[i].resize(ngainTabs[i]);
+      gainsArrR2[i].resize(ngainTabs[i]);
+      gainsArrI2[i].resize(ngainTabs[i]);
+      gainflag[i].resize(ngainTabs[i]);
+      freqsArr[i] = xt_alloc<double*>(ngainTabs[i]);
     } else {
       ngainTabs[i] = 1;
       nsumArr[i] = 1;
@@ -588,15 +592,15 @@ if(PCMode){
   for (i=0;i<nALMA;i++){
     nchanDt[i] = PyArray_DIM((PyArrayObject *)PyList_GetItem(PyList_GetItem(dterms,i),0),0);
     dtfreqsArr[i] = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(PyList_GetItem(dterms,i),0));
-    dttimesArr[i] = new double*[nsumArr[i]];
-    ndttimeArr[i] = new long[nsumArr[i]];
-    dtflag[i] = new bool*[nsumArr[i]];
-    dtermsArrR1[i] = new double*[nsumArr[i]];
-    dtermsArrI1[i] = new double*[nsumArr[i]];
-    dtermsArrR2[i] = new double*[nsumArr[i]];
-    dtermsArrI2[i] = new double*[nsumArr[i]];
+    dttimesArr[i].resize(nsumArr[i]);
+    ndttimeArr[i] = xt_alloc<long>(nsumArr[i]);
+    dtflag[i] = xt_alloc<bool*>(nsumArr[i]);
+    dtermsArrR1[i] = xt_alloc<double*>(nsumArr[i]);
+    dtermsArrI1[i] = xt_alloc<double*>(nsumArr[i]);
+    dtermsArrR2[i] = xt_alloc<double*>(nsumArr[i]);
+    dtermsArrI2[i] = xt_alloc<double*>(nsumArr[i]);
     for (j=0;j<nsumArr[i];j++){
-      dttimesArr[i][j] = new double[1];
+      dttimesArr[i][j] = xt_alloc<double>(1);
       dttimesArr[i][j][0] = 0.0;
       ndttimeArr[i][j] = 1;
       dtermsArrR1[i][j] = (double *)PyArray_DATA((PyArrayObject *)
@@ -616,13 +620,13 @@ if(PCMode){
       kind[i][j] = (int)PyInt_AsLong(PyList_GetItem(PyList_GetItem(ikind,i),j));
       nchanArr[i][j] = PyArray_DIM((PyArrayObject *)PyList_GetItem(tempPy,0),0);
       freqsArr[i][j] = (double *)PyArray_DATA((PyArrayObject *)PyList_GetItem(tempPy,0));
-      ntimeArr[i][j] = new long[nsumArr[i]];
-      timesArr[i][j] = new double*[nsumArr[i]];
-      gainsArrR1[i][j] = new double*[nsumArr[i]];
-      gainsArrI1[i][j] = new double*[nsumArr[i]];
-      gainsArrR2[i][j] = new double*[nsumArr[i]];
-      gainsArrI2[i][j] = new double*[nsumArr[i]];
-      gainflag[i][j] = new bool*[nsumArr[i]];
+      ntimeArr[i][j] = xt_alloc<long>(nsumArr[i]);
+      timesArr[i][j] = xt_alloc<double*>(nsumArr[i]);
+      gainsArrR1[i][j] = xt_alloc<double*>(nsumArr[i]);
+      gainsArrI1[i][j] = xt_alloc<double*>(nsumArr[i]);
+      gainsArrR2[i][j] = xt_alloc<double*>(nsumArr[i]);
+      gainsArrI2[i][j] = xt_alloc<double*>(nsumArr[i]);
+      gainflag[i][j] = xt_alloc<bool*>(nsumArr[i]);
 
       for (k=0; k<nsumArr[i]; k++){
         ntimeArr[i][j][k] = PyArray_DIM((PyArrayObject *)PyList_GetItem(PyList_GetItem(tempPy,k+1),0),0);
@@ -648,20 +652,27 @@ if(PCMode){
 
 
 // ALLOCATE MEMORY FOR CALIBRATION INSTANCES:
-  CalTable ***allgains = new CalTable**[nALMA];
-  CalTable **alldterms = new CalTable*[nALMA];
+// (allgains/alldterms hold pointers to individually new'd CalTable
+// instances; only the owning index arrays are xtensor/std::vector-managed)
+  std::vector<std::vector<CalTable*>> allgains(nALMA);
+  std::vector<CalTable*> alldterms(nALMA);
 
 // CREATE CALIBRATION INSTANCES:  
 
  
   for (i=0; i<nALMA; i++){
-    allgains[i] = new CalTable*[ngainTabs[i]];
+    allgains[i].resize(ngainTabs[i]);
 
  // ALMA CASE: ACTUAL CALIBRATION INFORMATION OF THE PHASED ARRAY:        
     if(PCMode){
-       alldterms[i] = new CalTable(2,dtermsArrR1[i],dtermsArrI1[i],
-           dtermsArrR2[i],dtermsArrI2[i],dtfreqsArr[i],dttimesArr[i],
-           nsumArr[i],ndttimeArr[i], nchanDt[i],dtflag[i],true,logFile,
+// Build a bridging pointer array for the (always length-1) D-term times,
+// since CalTable's constructor expects a plain double** :
+       xt::xtensor<double*,1> dttimesPtrs = xt_alloc<double*>(nsumArr[i]);
+       for (j=0;j<nsumArr[i];j++){ dttimesPtrs[j] = dttimesArr[i][j].data(); };
+
+       alldterms[i] = new CalTable(2,dtermsArrR1[i].data(),dtermsArrI1[i].data(),
+           dtermsArrR2[i].data(),dtermsArrI2[i].data(),dtfreqsArr[i],dttimesPtrs.data(),
+           nsumArr[i],ndttimeArr[i].data(), nchanDt[i],dtflag[i].data(),true,logFile,
 	   false); // verbose);
 
        for (j=0; j<ngainTabs[i];j++){
@@ -678,10 +689,10 @@ if(PCMode){
          printf("FG: %i\n",gainflag[i][j][0][0]);
          printf("IL: %i\n",isLinear[i][j]);
 */
-         allgains[i][j] = new CalTable(kind[i][j],gainsArrR1[i][j],
-           gainsArrI1[i][j],gainsArrR2[i][j],gainsArrI2[i][j],freqsArr[i][j],
-           timesArr[i][j],nsumArr[i],ntimeArr[i][j], nchanArr[i][j],
-           gainflag[i][j],isLinear[i][j],logFile,
+         allgains[i][j] = new CalTable(kind[i][j],gainsArrR1[i][j].data(),
+           gainsArrI1[i][j].data(),gainsArrR2[i][j].data(),gainsArrI2[i][j].data(),freqsArr[i][j],
+           timesArr[i][j].data(),nsumArr[i],ntimeArr[i][j].data(), nchanArr[i][j],
+           gainflag[i][j].data(),isLinear[i][j],logFile,
 	   false); // verbose);
        };
 
@@ -737,13 +748,13 @@ if(PCMode){
   if (isSWIN) {
     sprintf(message,"\n\n Opening and preparing SWIN files.\n");
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
-    DifXData = new DataIOSWIN(nSWINFiles, SWINFiles, nALMA, 
-           almanums, doRange, SWINnIF, SWINnchan, nIFconv, IFs2Conv, IFoffset, AutoCorrMedianWindow, ACorrs, SWINFreqs, 
+    DifXData = new DataIOSWIN(nSWINFiles, SWINFiles.data(), nALMA, 
+           almanums.data(), doRange, SWINnIF, SWINnchan.data(), nIFconv, IFs2Conv, IFoffset, AutoCorrMedianWindow, ACorrs, SWINFreqs.data(), 
            OverWrite, doTest, iDoSolve, calField, jd0, Geometry, doParang, logFile);
   } else {
     sprintf(message,"\n\n Opening FITS-IDI file and reading header.\n");
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
-    DifXData = new DataIOFITS(outputfits, nALMA, almanums, 
+    DifXData = new DataIOFITS(outputfits, nALMA, almanums.data(), 
           doRange, nIFconv, IFs2Conv, OverWrite, doConj, iDoSolve, calField, Geometry, doParang, logFile);
   };
 
@@ -786,49 +797,34 @@ if(PCMode){
 
 
 // Gains:
-  std::complex<float> ***AnG[nALMA], ***AnDt[nALMA];
-  bool *Weight[nALMA];
+  std::vector<xt::xtensor<cplx32f,3>> AnG(nALMA);
+  std::vector<xt::xtensor<cplx32f,3>> AnDt(nALMA);
+  std::vector<xt::xtensor<bool,1>> Weight(nALMA);
 
 // K matrix (beware: 3rd dimension of the matrix elements is now real/imag; not X/Y!):
-  std::complex<float> **K[nALMA][2][2];
+  std::vector<xt::xtensor<cplx32f,4>> K(nALMA);
 
 // part of K matrix that is unlikely to change much with time (i.e., BP, D-terms, X/Y delay):
-  std::complex<float> **Kfrozen[nALMA][2][2]; 
+  std::vector<xt::xtensor<cplx32f,4>> Kfrozen(nALMA);
 
 // Ktotal will be the calibration+conversion matrix (i.e., just multiply V by it, to get final V):
-  std::complex<float> *Ktotal[nALMA][2][2];
+  std::vector<xt::xtensor<cplx32f,3>> Ktotal(nALMA);
 
 
 
   for (ij=0; ij<nALMA; ij++) {
     auxI = nsumArr[ij];
+    std::size_t szAuxI = static_cast<std::size_t>(auxI);
+    std::size_t szMaxnchan = static_cast<std::size_t>(maxnchan);
 
-    AnG[ij] =  new std::complex<float> **[auxI];
-    AnDt[ij] =  new std::complex<float> **[auxI];
-    Weight[ij] =  new bool [auxI];
+    AnG[ij] = xt::xtensor<cplx32f,3>({szAuxI, (std::size_t)2, szMaxnchan});
+    AnDt[ij] = xt::xtensor<cplx32f,3>({szAuxI, (std::size_t)2, szMaxnchan});
+    Weight[ij] = xt::xtensor<bool,1>(xt::xtensor<bool,1>::shape_type({szAuxI}));
+    std::fill(Weight[ij].begin(), Weight[ij].end(), false);
 
-    for (ii=0; ii<auxI; ii++) {
-      AnG[ij][ii] =  new std::complex<float> *[2];
-      AnG[ij][ii][0] = new std::complex<float>[maxnchan];
-      AnG[ij][ii][1] = new std::complex<float>[maxnchan];
-      AnDt[ij][ii] =  new std::complex<float> *[2];
-      AnDt[ij][ii][0] = new std::complex<float>[maxnchan];
-      AnDt[ij][ii][1] = new std::complex<float>[maxnchan];
-    };
-
-// K matrix:
-    for (ii=0; ii<2; ii++) {
-      for (ik=0; ik<2; ik++) {
-        K[ij][ii][ik] =  new std::complex<float> *[auxI];
-        Kfrozen[ij][ii][ik] =  new std::complex<float> *[auxI];
-        Ktotal[ij][ii][ik] = new std::complex<float>[maxnchan];
-  
-        for (il=0; il<auxI; il++) {
-          K[ij][ii][ik][il] =  new std::complex<float>[maxnchan];
-          Kfrozen[ij][ii][ik][il] =  new std::complex<float>[maxnchan];
-       };
-      };
-    };
+    K[ij] = xt::xtensor<cplx32f,4>({(std::size_t)2, (std::size_t)2, szAuxI, szMaxnchan});
+    Kfrozen[ij] = xt::xtensor<cplx32f,4>({(std::size_t)2, (std::size_t)2, szAuxI, szMaxnchan});
+    Ktotal[ij] = xt::xtensor<cplx32f,3>({(std::size_t)2, (std::size_t)2, szMaxnchan});
 
   };
 
@@ -886,7 +882,8 @@ if(PCMode){
 
 
 
-  FILE **plotFile = new FILE*[nIFplot+nIFconv]();
+  xt::xtensor<FILE*,1> plotFile = xt_alloc<FILE*>(nIFplot+nIFconv);
+  std::fill(plotFile.begin(), plotFile.end(), (FILE*)nullptr);
   FILE *gainsFile = (FILE*)0;
 
 // Prepare plotting or solving files:
@@ -1087,12 +1084,12 @@ if(PCMode){
              Phased = ALMAWeight->isPhased(currT);
              if (Phased){
                for (ij=0; ij<currNant; ij++) {
-                 Weight[currAntIdx][ij] = ALMAWeight->getWeight(ij,currT);
-                 if (Weight[currAntIdx][ij]){allflagged = false;};
+                 Weight[currAntIdx](ij) = ALMAWeight->getWeight(ij,currT);
+                 if (Weight[currAntIdx](ij)){allflagged = false;};
                };
              };
            } else {
-             Phased=true; Weight[currAntIdx][0] = true; allflagged = false;
+             Phased=true; Weight[currAntIdx](0) = true; allflagged = false;
            };
 
 // get ALMA refant used in the Phasing (to correct for X-Y phase offset):
@@ -1134,8 +1131,9 @@ if(PCMode){
 
              gchanged = allgains[currAntIdx][0]->setInterpolationTime(currT);
              for (ij=0; ij<currNant; ij++) {
-               if (Weight[currAntIdx][ij]) {
-               allgains[currAntIdx][0]->applyInterpolation(ij,0,AnG[currAntIdx][ij]); };
+               if (Weight[currAntIdx](ij)) {
+               cplx32f* gain[2] = {&AnG[currAntIdx](ij,0,0), &AnG[currAntIdx](ij,1,0)};
+               allgains[currAntIdx][0]->applyInterpolation(ij,0,gain); };
              };
              if(verbose){printf(" Normal Mode 0\n");fflush(stdout);};
 
@@ -1144,9 +1142,10 @@ if(PCMode){
                auxB1 = allgains[currAntIdx][ik]->setInterpolationTime(currT) ;
                gchanged = gchanged || auxB1;
                for (ij=0; ij<currNant; ij++) {
-                 if (Weight[currAntIdx][ij]) {
+                 if (Weight[currAntIdx](ij)) {
+                   cplx32f* gain[2] = {&AnG[currAntIdx](ij,0,0), &AnG[currAntIdx](ij,1,0)};
                    allgains[currAntIdx][ik]->applyInterpolation(
-                       ij,2,AnG[currAntIdx][ij]);  
+                       ij,2,gain);
                  };
                };
              };
@@ -1179,9 +1178,10 @@ if(PCMode){
 // DTERM:
              dtchanged = alldterms[currAntIdx]->setInterpolationTime(currT);
              for (ij=0; ij<currNant; ij++) {
-               if (Weight[currAntIdx][ij]) {
+               if (Weight[currAntIdx](ij)) {
+                 cplx32f* dterm[2] = {&AnDt[currAntIdx](ij,0,0), &AnDt[currAntIdx](ij,1,0)};
                  alldterms[currAntIdx]->applyInterpolation(
-                     ij,0,AnDt[currAntIdx][ij]);  
+                     ij,0,dterm);
                };
              };
              if(verbose){printf(" D-terms Mode\n");fflush(stdout);};
@@ -1198,18 +1198,18 @@ if(PCMode){
              gchanged=false; dtchanged=false;
              for (j=0; j<nchans[ii]; j++) {
                if(XYSWAP[currAntIdx]){
-                 Ktotal[currAntIdx][0][0][j] = HSw[0][0]*oneOverSqrt2; //*gainRatio[j];
-                 Ktotal[currAntIdx][0][1][j] = HSw[0][1]*oneOverSqrt2/gainRatio[j];
-                 Ktotal[currAntIdx][1][0][j] = HSw[1][0]*oneOverSqrt2; //*gainRatio[j];
-                 Ktotal[currAntIdx][1][1][j] = HSw[1][1]*oneOverSqrt2/gainRatio[j];} 
+                 Ktotal[currAntIdx](0,0,j) = HSw[0][0]*oneOverSqrt2; //*gainRatio[j];
+                 Ktotal[currAntIdx](0,1,j) = HSw[0][1]*oneOverSqrt2/gainRatio[j];
+                 Ktotal[currAntIdx](1,0,j) = HSw[1][0]*oneOverSqrt2; //*gainRatio[j];
+                 Ktotal[currAntIdx](1,1,j) = HSw[1][1]*oneOverSqrt2/gainRatio[j];} 
                else {
-                 Ktotal[currAntIdx][0][0][j] = H[0][0]*oneOverSqrt2; //*gainRatio[j];
-                 Ktotal[currAntIdx][0][1][j] = H[0][1]*oneOverSqrt2/gainRatio[j];
-                 Ktotal[currAntIdx][1][0][j] = H[1][0]*oneOverSqrt2; //*gainRatio[j];
-                 Ktotal[currAntIdx][1][1][j] = H[1][1]*oneOverSqrt2/gainRatio[j];
+                 Ktotal[currAntIdx](0,0,j) = H[0][0]*oneOverSqrt2; //*gainRatio[j];
+                 Ktotal[currAntIdx](0,1,j) = H[0][1]*oneOverSqrt2/gainRatio[j];
+                 Ktotal[currAntIdx](1,0,j) = H[1][0]*oneOverSqrt2; //*gainRatio[j];
+                 Ktotal[currAntIdx](1,1,j) = H[1][1]*oneOverSqrt2/gainRatio[j];
                };
-             //  Ktotal[currAntIdx][0][1][j] *= gainRatio[j];
-             //  Ktotal[currAntIdx][1][1][j] *= gainRatio[j];
+             //  Ktotal[currAntIdx](0,1,j) *= gainRatio[j];
+             //  Ktotal[currAntIdx](1,1,j) *= gainRatio[j];
              };
            };
 
@@ -1226,7 +1226,7 @@ if(PCMode){
              for (ij=0; ij<2; ij++) {
                for (ik=0; ik<2; ik++) {
                  for (j=0; j<nchans[ii]; j++) {
-                   Ktotal[currAntIdx][ij][ik][j] = 0.0; 
+                   Ktotal[currAntIdx](ij,ik,j) = 0.0; 
                  };
                };
              };
@@ -1238,7 +1238,7 @@ if(PCMode){
 
      // BUT ONLY IF ANTENNA WAS USED IN THE PHASING
      //indent level if ANTENNA WAS USED IN THE PHASING
-               if (Weight[currAntIdx][ij]) {
+               if (Weight[currAntIdx](ij)) {
 
      // Total weight:
                  auxD += 1.0;
@@ -1248,24 +1248,24 @@ if(PCMode){
                    for (j=0; j<nchans[ii]; j++) {
                      gainXY[0] = 1.0 ; 
                      gainXY[1] = 1.0 ;
-                     Kfrozen[currAntIdx][0][1][ij][j] = 
-                         gainXY[0]*AnDt[currAntIdx][ij][0][j];
-                     Kfrozen[currAntIdx][1][0][ij][j] = 
-                         gainXY[1]*AnDt[currAntIdx][ij][1][j];
-                     Kfrozen[currAntIdx][0][0][ij][j] = gainXY[0];
-                     Kfrozen[currAntIdx][1][1][ij][j] = gainXY[1];
+                     Kfrozen[currAntIdx](0,1,ij,j) = 
+                         gainXY[0]*AnDt[currAntIdx](ij,0,j);
+                     Kfrozen[currAntIdx](1,0,ij,j) = 
+                         gainXY[1]*AnDt[currAntIdx](ij,1,j);
+                     Kfrozen[currAntIdx](0,0,ij,j) = gainXY[0];
+                     Kfrozen[currAntIdx](1,1,ij,j) = gainXY[1];
                    };
                  };
 
                  for (j=0; j<nchans[ii]; j++) {
-                   K[currAntIdx][0][0][ij][j] = 
-                       Kfrozen[currAntIdx][0][0][ij][j]*AnG[currAntIdx][ij][0][j];
-                   K[currAntIdx][1][1][ij][j] = 
-                       Kfrozen[currAntIdx][1][1][ij][j]*AnG[currAntIdx][ij][1][j];
-                   K[currAntIdx][0][1][ij][j] = 
-                       Kfrozen[currAntIdx][0][1][ij][j]*AnG[currAntIdx][ij][0][j];
-                   K[currAntIdx][1][0][ij][j] = 
-                       Kfrozen[currAntIdx][1][0][ij][j]*AnG[currAntIdx][ij][1][j];
+                   K[currAntIdx](0,0,ij,j) = 
+                       Kfrozen[currAntIdx](0,0,ij,j)*AnG[currAntIdx](ij,0,j);
+                   K[currAntIdx](1,1,ij,j) = 
+                       Kfrozen[currAntIdx](1,1,ij,j)*AnG[currAntIdx](ij,1,j);
+                   K[currAntIdx](0,1,ij,j) = 
+                       Kfrozen[currAntIdx](0,1,ij,j)*AnG[currAntIdx](ij,0,j);
+                   K[currAntIdx](1,0,ij,j) = 
+                       Kfrozen[currAntIdx](1,0,ij,j)*AnG[currAntIdx](ij,1,j);
                  };
                  // indent within if ANTENNA WAS USED IN THE PHASING
 
@@ -1273,7 +1273,7 @@ if(PCMode){
                  for (il=0; il<2; il++) {
                    for (ik=0; ik<2; ik++) {
                      for (j=0; j<nchans[ii]; j++) {
-                       Ktotal[currAntIdx][il][ik][j] += K[currAntIdx][il][ik][ij][j];
+                       Ktotal[currAntIdx](il,ik,j) += K[currAntIdx](il,ik,ij,j);
                      };
                    };
                  };
@@ -1296,14 +1296,14 @@ if(PCMode){
 //indent level within getting average loop
                for (ij=0; ij<2; ij++) {
                  for (ik=0; ik<2; ik++) {
-                   Ktotal[currAntIdx][ij][ik][j] /= auxD;
+                   Ktotal[currAntIdx](ij,ik,j) /= auxD;
                  };
                };
 //indent level within getting average loop
 
 // Correct the phase offset at the reference antenna:
-               Ktotal[currAntIdx][0][1][j] *= gainRatio[j];
-               Ktotal[currAntIdx][1][1][j] *= gainRatio[j];
+               Ktotal[currAntIdx](0,1,j) *= gainRatio[j];
+               Ktotal[currAntIdx](1,1,j) *= gainRatio[j];
 
 ////////////
                //indent level within getting average loop
@@ -1311,13 +1311,13 @@ if(PCMode){
                  printf("gainRatio (j=0): %.3e %.3e\n",
                       gainRatio[j].real(), gainRatio[j].imag());
                  printf("Ktot00: %.3e %.3e\n",
-                      Ktotal[currAntIdx][0][0][j].real(), Ktotal[currAntIdx][0][0][j].imag());
+                      Ktotal[currAntIdx](0,0,j).real(), Ktotal[currAntIdx](0,0,j).imag());
                  printf("Ktot01: %.3e %.3e\n",
-                      Ktotal[currAntIdx][0][1][j].real(), Ktotal[currAntIdx][0][1][j].imag());
+                      Ktotal[currAntIdx](0,1,j).real(), Ktotal[currAntIdx](0,1,j).imag());
                  printf("Ktot10: %.3e %.3e\n",
-                      Ktotal[currAntIdx][1][0][j].real(), Ktotal[currAntIdx][1][0][j].imag());
+                      Ktotal[currAntIdx](1,0,j).real(), Ktotal[currAntIdx](1,0,j).imag());
                  printf("Ktot11: %.3e %.3e\n",
-                      Ktotal[currAntIdx][1][1][j].real(), Ktotal[currAntIdx][1][1][j].imag()); 
+                      Ktotal[currAntIdx](1,1,j).real(), Ktotal[currAntIdx](1,1,j).imag()); 
                  if (allflagged) {printf("All flagged\n"); }
                  else {printf("Not flagged\n"); };		 
                };
@@ -1328,8 +1328,8 @@ if(PCMode){
 // THIS CODE IS INDEPENDENT OF HOW THE AVERAGE FOR K MATRIX IS IMPLEMENTED
 
                //indent level within getting average loop
-               AD = Ktotal[currAntIdx][0][0][j]*Ktotal[currAntIdx][1][1][j];
-               BC = Ktotal[currAntIdx][0][1][j]*Ktotal[currAntIdx][1][0][j];
+               AD = Ktotal[currAntIdx](0,0,j)*Ktotal[currAntIdx](1,1,j);
+               BC = Ktotal[currAntIdx](0,1,j)*Ktotal[currAntIdx](1,0,j);
    // Determinant:
                DetInv = (AD - BC); // 
 
@@ -1340,11 +1340,11 @@ if(PCMode){
                  Kinv[1][0] = 0.0;
                  Kinv[1][1] = 1.0;} 
                else {
-                 Kinv[0][0] = Ktotal[currAntIdx][1][1][j]/DetInv;
-                 Kinv[1][1] = Ktotal[currAntIdx][0][0][j]/DetInv;
+                 Kinv[0][0] = Ktotal[currAntIdx](1,1,j)/DetInv;
+                 Kinv[1][1] = Ktotal[currAntIdx](0,0,j)/DetInv;
 // BEWARE THAT THIS MUST BE IN ACCORDANCE TO THE DEFINITION OF Dx AND Dy!!!
-                 Kinv[0][1] = -Ktotal[currAntIdx][0][1][j]/DetInv;
-                 Kinv[1][0] = -Ktotal[currAntIdx][1][0][j]/DetInv;
+                 Kinv[0][1] = -Ktotal[currAntIdx](0,1,j)/DetInv;
+                 Kinv[1][0] = -Ktotal[currAntIdx](1,0,j)/DetInv;
                };
 
               //indent level within getting average loop
@@ -1357,22 +1357,22 @@ if(PCMode){
    // result in the "Ktotal" matrix:
                //indent level within getting average looop
                if(XYSWAP[currAntIdx]){
-                 Ktotal[currAntIdx][0][0][j] = 
+                 Ktotal[currAntIdx](0,0,j) = 
                     (Kinv[0][0]*HSw[0][0]+Kinv[1][0]*HSw[0][1])*oneOverSqrt2;
-                 Ktotal[currAntIdx][0][1][j] = 
+                 Ktotal[currAntIdx](0,1,j) = 
                     (Kinv[0][1]*HSw[0][0]+Kinv[1][1]*HSw[0][1])*oneOverSqrt2;
-                 Ktotal[currAntIdx][1][0][j] = 
+                 Ktotal[currAntIdx](1,0,j) = 
                     (Kinv[0][0]*HSw[1][0]+Kinv[1][0]*HSw[1][1])*oneOverSqrt2;
-                 Ktotal[currAntIdx][1][1][j] = 
+                 Ktotal[currAntIdx](1,1,j) = 
                     (Kinv[0][1]*HSw[1][0]+Kinv[1][1]*HSw[1][1])*oneOverSqrt2;} 
                else {
-                 Ktotal[currAntIdx][0][0][j] = 
+                 Ktotal[currAntIdx](0,0,j) = 
                     (Kinv[0][0]*H[0][0]+Kinv[1][0]*H[0][1])*oneOverSqrt2;
-                 Ktotal[currAntIdx][0][1][j] = 
+                 Ktotal[currAntIdx](0,1,j) = 
                     (Kinv[0][1]*H[0][0]+Kinv[1][1]*H[0][1])*oneOverSqrt2;
-                 Ktotal[currAntIdx][1][0][j] = 
+                 Ktotal[currAntIdx](1,0,j) = 
                     (Kinv[0][0]*H[1][0]+Kinv[1][0]*H[1][1])*oneOverSqrt2;
-                 Ktotal[currAntIdx][1][1][j] = 
+                 Ktotal[currAntIdx](1,1,j) = 
                     (Kinv[0][1]*H[1][0]+Kinv[1][1]*H[1][1])*oneOverSqrt2;
                };
                //indent level within getting average looop
@@ -1402,10 +1402,10 @@ if(PCMode){
              fprintf(gainsFile, "%i  %i  %.10e  %.5e \n",
                   ii+1, currAnt, currT/86400.,AntTab*AntTab/std::abs(auxD));
              for(j=0; j<nchans[ii]; j++){
-               Ktotal[currAntIdx][0][0][j] /= AntTab;
-               Ktotal[currAntIdx][0][1][j] /= AntTab;
-               Ktotal[currAntIdx][1][0][j] /= AntTab;
-               Ktotal[currAntIdx][1][1][j] /= AntTab;
+               Ktotal[currAntIdx](0,0,j) /= AntTab;
+               Ktotal[currAntIdx](0,1,j) /= AntTab;
+               Ktotal[currAntIdx](1,0,j) /= AntTab;
+               Ktotal[currAntIdx](1,1,j) /= AntTab;
              };
            };
            //indent level within time range
@@ -1416,12 +1416,12 @@ if(PCMode){
           //   printf("%.2f %i |",std::abs(gainRatio[10]),currAntIdx);fflush(stdout);
              for(j=0; j<nchans[ii]; j++){
               //  AntTab = std::abs(gainRatio[j]); 
-                AntTab = 1./std::abs(Ktotal[currAntIdx][0][0][j]*Ktotal[currAntIdx][1][1][j] - Ktotal[currAntIdx][0][1][j]*Ktotal[currAntIdx][1][0][j]);
+                AntTab = 1./std::abs(Ktotal[currAntIdx](0,0,j)*Ktotal[currAntIdx](1,1,j) - Ktotal[currAntIdx](0,1,j)*Ktotal[currAntIdx](1,0,j));
              //   if(j==0 && currAntIdx==2){printf("%.2e ",AntTab);fflush(stdout);};
-                Ktotal[currAntIdx][0][0][j] *= AntTab;
-                Ktotal[currAntIdx][0][1][j] *= AntTab;
-                Ktotal[currAntIdx][1][0][j] *= AntTab;
-                Ktotal[currAntIdx][1][1][j] *= AntTab;
+                Ktotal[currAntIdx](0,0,j) *= AntTab;
+                Ktotal[currAntIdx](0,1,j) *= AntTab;
+                Ktotal[currAntIdx](1,0,j) *= AntTab;
+                Ktotal[currAntIdx](1,1,j) *= AntTab;
              };
            };
 
@@ -1440,8 +1440,11 @@ if(PCMode){
            if(Phased){
              // note that if IFplot < 0, plotFile[IFplot] is
              // garbage; but auxB2 (just set) prevents its use
+             std::complex<float>* Mptr[2][2] = {
+                 {&Ktotal[currAntIdx](0,0,0), &Ktotal[currAntIdx](0,1,0)},
+                 {&Ktotal[currAntIdx](1,0,0), &Ktotal[currAntIdx](1,1,0)}};
              DifXData->applyMatrix(
-                 Ktotal[currAntIdx],XYSWAP[currAntIdx],auxB2,
+                 Mptr,XYSWAP[currAntIdx],auxB2,
                  currAntIdx,plotFile[IFplot]);
            } else {
              sprintf(message,"WARNING! Zero-ing weights at time %.8f!\n",currT);
@@ -1513,117 +1516,24 @@ if(plRange[0]<=doRange[1] && plRange[1]>=doRange[0]){
 /////////////////////////////////////////////////
 // Free memory:
 
+// AnG, AnDt, Weight, K, Kfrozen, and Ktotal are xtensor-backed
+// std::vector<xt::xtensor<...>> containers, so they free themselves
+// automatically when they go out of scope; no manual cleanup needed.
 
-  for (ij=0; ij<nALMA; ij++) {
-    auxI = nsumArr[ij];
-    for (ii=0; ii<auxI; ii++) {
-      delete[] AnG[ij][ii][0];
-      delete[] AnG[ij][ii][1];
-      delete[] AnDt[ij][ii][0];
-      delete[] AnDt[ij][ii][1];
-      delete[] AnG[ij][ii];
-      delete[] AnDt[ij][ii];
-    };
-    delete[] AnG[ij];
-    delete[] AnDt[ij];
-    delete[] Weight[ij];
-
-    for (ii=0; ii<2; ii++) {
-      for (ik=0; ik<2; ik++) {
-        for (il=0; il<auxI; il++) {
-          delete[] K[ij][ii][ik][il];
-          delete[] Kfrozen[ij][ii][ik][il];
-        };
-        delete[] K[ij][ii][ik];
-        delete[] Kfrozen[ij][ii][ik];
-        delete[] Ktotal[ij][ii][ik];
-      };
-    };
-  };
-
+// The gain/dterm bookkeeping arrays (kind, ntimeArr, nchanArr, freqsArr,
+// timesArr, gainsArr*, gainflag, nchanDt, ndttimeArr, dtfreqsArr,
+// dttimesArr, dtermsArr*, dtflag, isLinear, XYSWAP, ngainTabs, nsumArr,
+// almanums) are xtensor/std::vector-managed and free themselves.
+// Only the individually new'd CalTable instances need explicit deletion:
   for (i=0;i<nALMA;i++){
-
-  if(PCMode){
-    for (j=0;j<nsumArr[i];j++){
-      delete[] dttimesArr[i][j];
-    };
-    for (j=0; j<ngainTabs[i]; j++){
-      delete[] ntimeArr[i][j];
-      delete[] timesArr[i][j];
-      delete[] gainsArrR1[i][j];
-      delete[] gainsArrI1[i][j];
-      delete[] gainsArrR2[i][j];
-      delete[] gainsArrI2[i][j];
-      delete[] gainflag[i][j];
-    };
-  };
-
     for (j=0; j<ngainTabs[i]; j++){
       delete allgains[i][j];
     };
     delete alldterms[i];
-    delete[] allgains[i];
-
-    if(PCMode){
-     delete[]  ntimeArr[i]; 
-     delete[]  timesArr[i];
-     delete[]  gainsArrR1[i];
-     delete[]  gainsArrI1[i];
-     delete[]  gainsArrR2[i];
-     delete[]  gainsArrI2[i];
-     delete[]  gainflag[i];
-     delete[]  kind[i];
-     delete[]  nchanArr[i];
-     delete[]  freqsArr[i];
-     delete[] dttimesArr[i];
-     delete[] ndttimeArr[i];
-     delete[] dtflag[i];
-     delete[] dtermsArrR1[i];
-     delete[] dtermsArrI1[i];
-     delete[] dtermsArrR2[i];
-     delete[] dtermsArrI2[i];
-    };
-
   };
 
-  for (j=0;j<nSWINFiles;j++){
-    for (i=0;i<NPGain;i++){
-      delete[] PrioriGains[j][i];
-    };
-    delete[] PrioriGains[j];
-  };
-
-  delete[] PrioriGains;
-  delete[] alldterms;
-  delete[] allgains;
-  delete[] nsumArr;
-  delete[] almanums;
-
- if(PCMode){
-  delete[] kind;
-  delete[]  ntimeArr;
-  delete[]  nchanArr;
-  delete[]  timesArr;
-  delete[]  gainsArrR1;
-  delete[]  gainsArrI1;
-  delete[]  gainsArrR2;
-  delete[]  gainsArrI2;
-  delete[]  gainflag;
-  delete[]  freqsArr;
-  delete[] ndttimeArr;
-  delete[] dttimesArr;
-  delete[] dtermsArrR1;
-  delete[] dtermsArrI1;
-  delete[] dtermsArrR2;
-  delete[] dtermsArrI2;
-  delete[] dtflag;
-  delete[] nchanDt; 
-  delete[] dtfreqsArr;
- };
-
-  delete[] isLinear;
-  delete[] XYSWAP;
-  delete[] ngainTabs;
+// PrioriGains is a NumPy-adapted view for [k][i]; only the outer index
+// structure (a plain std::vector<std::vector<...>>) needs no manual free.
 
 /////////////////////////////////////////////////////
 

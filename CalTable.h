@@ -24,7 +24,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 #include <sys/types.h>
 #include <iostream>
-#include <complex> 
+#include <complex>
+#include <vector>
+#include <xtensor/xtensor.hpp>
+#include <xtensor/xarray.hpp>
 
 /* Class to read a calibration table and interpolate
    its gains in frequency and time. */
@@ -81,27 +84,30 @@ class CalTable {
      static const int Nmax = 256; // Maximum number of antennas.
      std::string name;
      int Nants;
-     long *Ntimes;
+     std::vector<long> Ntimes;
      long Nchan;
      bool SignFreq, success;
-     double ***GainAmp[2];
-     double ***GainPhase[2];
-     bool **flags, *firstTime;
-     double *BuffPhase[2];
-     double *BuffAmp[2];
-     double **Time;
+// GainAmp[pol][ant] and GainPhase[pol][ant] are (Nchan x Ntimes[ant]) tensors
+// (ragged across antennas, since each antenna may have a different Ntimes[ant]).
+     std::vector<xt::xtensor<double,2>> GainAmp[2];
+     std::vector<xt::xtensor<double,2>> GainPhase[2];
+// flags[ant] is a (Nchan x Ntimes[ant]) tensor, same shape as GainAmp[*][ant].
+     std::vector<xt::xtensor<bool,2>> flags;
+     xt::xtensor<bool,1> firstTime;
+     std::vector<xt::xtensor<double,1>> Time;
      double currTime;
-     double *Freqs;
+     xt::xtensor<double,1> Freqs;
      double JDRange[2];
-     double *K0;
-     long *I0; 
-     long *I1; 
+     xt::xtensor<double,1> K0;
+     xt::xtensor<long,1> I0;
+     xt::xtensor<long,1> I1;
      long MSChan;
-     double *preKt;
-     long *pret0, *pret1;
+     xt::xtensor<double,1> preKt;
+     xt::xtensor<long,1> pret0, pret1;
      bool isDelay, gainChanged, isLinear, isDterm, isTsys, Verbose;
      double deltaNu0, deltaNu;
-     std::complex<float>** bufferGain[2];
+// bufferGain[pol][ant] is a length-MSChan tensor of interpolated gains.
+     std::vector<xt::xtensor<std::complex<float>,1>> bufferGain[2];
 };
 
 

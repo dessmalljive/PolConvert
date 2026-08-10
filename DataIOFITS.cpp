@@ -36,29 +36,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 
 DataIOFITS::~DataIOFITS() {
-
-  int i,j;
-  
-  delete[] linAnts;
-  delete[] currentVis;
-  delete[] bufferVis;
-  delete[] TwoLinearVis;
-  delete[] currentData;
-  delete[] bufferData;
-
-  delete[] NAV;
-  delete[] Freqs;
-  delete[] is1;
-  delete[] is2;
-
-  for(i=0; i<NLinAnt;i++){
-    for(j=0; j<Nfreqs; j++){delete[] averAutocorrs[i][j];};
-      delete[] averAutocorrs[i];
-  };
-  delete[] averAutocorrs; 
-
-  for(i=0;i<Nfreqs;i++){delete[] Freqvals[i];};
-
+// All members are now owned by xtensor / std::vector containers, which
+// free themselves automatically; no manual cleanup needed.
 };
 
 /*
@@ -100,7 +79,7 @@ DataIOFITS::DataIOFITS(std::string outputfile, int NlinAnt, int *LinAnt,
   NLinAnt = NlinAnt;
   doConjugate = doConj;
 
-  linAnts = new int[NlinAnt];
+  linAnts = xt_alloc<int>(NlinAnt);
   for (i=0;i<NlinAnt;i++){
     linAnts[i] = LinAnt[i];
   };
@@ -114,12 +93,12 @@ DataIOFITS::DataIOFITS(std::string outputfile, int NlinAnt, int *LinAnt,
   dsize = 2;
   doRange = Range;
 
-  currentVis = new std::complex<float>[8];
-  bufferVis = new std::complex<float>[8];
-  TwoLinearVis = new std::complex<float>[8];
+  currentVis = xt_alloc<std::complex<float>>(8);
+  bufferVis = xt_alloc<std::complex<float>>(8);
+  TwoLinearVis = xt_alloc<std::complex<float>>(8);
 
-  currentData = new float[12];
-  bufferData = new float[12];
+  currentData = xt_alloc<float>(12);
+  bufferData = xt_alloc<float>(12);
 
 /////////////////////////////////
 
@@ -141,13 +120,13 @@ DataIOFITS::DataIOFITS(std::string outputfile, int NlinAnt, int *LinAnt,
 
 
 //  Prepare memory for average autocorrs:
-  NAV = new int[NLinAnt];
-  averAutocorrs = new float**[NLinAnt];
+  NAV = xt_alloc<int>(NLinAnt);
+  averAutocorrs.resize(NLinAnt);
   for(i=0; i<NLinAnt;i++){
     NAV[i] = 0;  
-    averAutocorrs[i] = new float*[Nfreqs];
+    averAutocorrs[i].resize(Nfreqs);
     for(j=0;j<Nfreqs;j++){
-        averAutocorrs[i][j] = new float[Freqs[j].Nchan];
+        averAutocorrs[i][j] = xt_alloc<float>(Freqs[j].Nchan);
         for(k=0; k<Freqs[j].Nchan; k++){
         averAutocorrs[i][j][k] = 1.0;}
     };
@@ -192,10 +171,8 @@ void DataIOFITS::saveCirculars(std::string inputfile) {
   long il, ii;
   long a11, a12, a21, a22;
 
-  double *UVW;
-  UVW = new double[3];
-  float *FUVW;
-  FUVW = new float[3];
+  double UVW[3];
+  float FUVW[3];
 
   char UVDATA[] = "UV_DATA";
   char flux[] = "FLUX";
@@ -205,14 +182,12 @@ void DataIOFITS::saveCirculars(std::string inputfile) {
 
 
 // AUXILIARY BINARY FILES TO STORE CIRCULAR VISIBILITIES:
-  FILE **circFile = new FILE*[nDoIF];
+  xt::xtensor<FILE*,1> circFile = xt_alloc<FILE*>(nDoIF);
 
 
 // AUXILIARY MEMORY SPACE TO WRITE CIRCULAR VISIBS:
-   delete bufferVis ;
-   delete bufferData ;
-   bufferVis = new std::complex<float>[4*(Freqs[0].Nchan+1)] ;
-   bufferData = new float[12*(Freqs[0].Nchan+1)] ;
+   bufferVis = xt_alloc<std::complex<float>>(4*(Freqs[0].Nchan+1));
+   bufferData = xt_alloc<float>(12*(Freqs[0].Nchan+1));
 
 // OPEN AUXILIARY BINARY FILES:
   if (doWriteCirc){
@@ -223,7 +198,7 @@ void DataIOFITS::saveCirculars(std::string inputfile) {
       sprintf(message,"POLCONVERT.FRINGE/OTHERS.FRINGE_IF%i",DoIF[ii]+1);
       circFile[ii] = fopen(message,"wb");
       fwrite(&Freqs[DoIF[ii]].Nchan,sizeof(int),1,circFile[ii]);
-      fwrite(Freqvals[DoIF[ii]],Freqs[DoIF[ii]].Nchan*sizeof(double),1,circFile[ii]);
+      fwrite(Freqvals[DoIF[ii]].data(),Freqs[DoIF[ii]].Nchan*sizeof(double),1,circFile[ii]);
     };
   };
 
@@ -248,7 +223,7 @@ void DataIOFITS::saveCirculars(std::string inputfile) {
           jump += 4*((long) Freqs[j].Nchan);
         };
         Nentry = 4*((long) Freqs[currIF].Nchan);
-        fits_read_col(ofile, TFLOAT, Flux, il+1, dsize*jump+1, dsize*Nentry, NULL, bufferData, NULL, &status);
+        fits_read_col(ofile, TFLOAT, Flux, il+1, dsize*jump+1, dsize*Nentry, NULL, bufferData.data(), NULL, &status);
 
         for (j=0; j<Nentry; j++){
           i3 = dsize*j; bufferVis[j].real(bufferData[i3]);bufferVis[j].imag(bufferData[i3+1]); 
@@ -284,8 +259,6 @@ void DataIOFITS::saveCirculars(std::string inputfile) {
       fclose(circFile[ii]); 
     };
   };
-
-  delete[] circFile;
 
 
 };
@@ -408,7 +381,8 @@ void DataIOFITS::readInput(std::string inputfile, int saveSource) {
     success=false;return;
    };
 
-   Freqs = new FreqSetup[Nfreqs];
+   Freqs.resize(Nfreqs);
+   Freqvals.resize(Nfreqs);
    float BW[Nfreqs], chanwidth[Nfreqs];
    double bandfreq[Nfreqs];
    int SB[Nfreqs];
@@ -439,7 +413,7 @@ void DataIOFITS::readInput(std::string inputfile, int saveSource) {
        double dchw = (double) chanwidth[ii] ;
        Freqs[ii+jj*Nband].Nu0 = reffreq + bandfreq[ii] - refpix*dchw;
        Freqs[ii+jj*Nband].SB = SB[ii]==1;
-       Freqvals[ii] = new double[Nchan];
+       Freqvals[ii] = xt_alloc<double>(Nchan);
 
        if (SB[ii]==1){
          for (auxI = 1; auxI<Nchan+1; auxI++) {
@@ -470,22 +444,21 @@ void DataIOFITS::readInput(std::string inputfile, int saveSource) {
 
 
 // ALLOCATE MEMORY FOR MIXED-POL. METADATA:
-  Basels = new int[2*Nvis];
-  an1 = new int[2*Nvis];
-  an2 = new int[2*Nvis];
-  field = new int[2*Nvis];
-  ParAng[0] = new double[2*Nvis];
-  ParAng[1] = new double[2*Nvis];
-  UVDist = new double[2*Nvis];
-  indexes = new long[2*Nvis];
-  conjugate = new bool[2*Nvis];
-  is1 = new bool[2*Nvis];
-  is2 = new bool[2*Nvis];
-  is1orig = new bool[2*Nvis];
-  is2orig = new bool[2*Nvis];
-  JDTimes = new double[2*Nvis];
-  Times = new double[2*Nvis];
-  double *Dates = new double[2*Nvis];
+  Basels = xt_alloc<int>(2*Nvis);
+  an1 = xt_alloc<int>(2*Nvis);
+  an2 = xt_alloc<int>(2*Nvis);
+  field = xt_alloc<int>(2*Nvis);
+  ParAng[0] = xt_alloc<double>(2*Nvis);
+  ParAng[1] = xt_alloc<double>(2*Nvis);
+  UVDist = xt_alloc<double>(2*Nvis);
+  indexes = xt_alloc<long>(2*Nvis);
+  is1 = xt_alloc<bool>(2*Nvis);
+  is2 = xt_alloc<bool>(2*Nvis);
+  is1orig = xt_alloc<bool>(2*Nvis);
+  is2orig = xt_alloc<bool>(2*Nvis);
+  JDTimes = xt_alloc<double>(2*Nvis);
+  Times = xt_alloc<double>(2*Nvis);
+  xt::xtensor<double,1> Dates = xt_alloc<double>(2*Nvis);
   for(il=0;il<2*Nvis;il++){
     is1orig[il]=false;  is2orig[il]=false;
   };
@@ -525,7 +498,7 @@ void DataIOFITS::readInput(std::string inputfile, int saveSource) {
     sprintf(message,"\n\nPROBLEM READING NUMBERS OF COLUMNS!  ERR: %i\n\n",status);
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
 
-    success=false; delete[] Dates; return;
+    success=false; return;
   };
 
 
@@ -540,16 +513,14 @@ void DataIOFITS::readInput(std::string inputfile, int saveSource) {
 
   double AuxPA1, AuxPA2;
   double currT;
-  double *UVW;
-  UVW = new double[3];
-  float *FUVW;
-  FUVW = new float[3];
+  double UVW[3];
+  float FUVW[3];
   int souidx;
   bool isLinVis;
 
 
 
-  Vis2Save = new long[2*Nvis];
+  Vis2Save = xt_alloc<long>(2*Nvis);
   NVis2Save = 0;
 
 
@@ -642,7 +613,6 @@ void DataIOFITS::readInput(std::string inputfile, int saveSource) {
     success=false;return;
   };
 
-delete[] Dates;
 return;
 };
 
@@ -670,20 +640,15 @@ bool DataIOFITS::setCurrentIF(int i){
   currVis = 0;
   jump = 4*((long) Freqs[currFreq].Nchan)*((long) currBand);
   Nentry = 4*((long) Freqs[currFreq].Nchan);
-  delete currentVis ;
-  delete bufferVis ;
-  delete TwoLinearVis ;
-  delete bufferData ;
-  delete currentData ;
-  currentVis = new std::complex<float>[4*(Freqs[currFreq].Nchan+1)] ;
-  bufferVis = new std::complex<float>[4*(Freqs[currFreq].Nchan+1)] ;
-  TwoLinearVis = new std::complex<float>[4*(Freqs[currFreq].Nchan+1)] ;
- 
-  currentData = new float[12*(Freqs[currFreq].Nchan+1)] ;
-  bufferData = new float[12*(Freqs[currFreq].Nchan+1)] ;
+  currentVis = xt_alloc<std::complex<float>>(4*(Freqs[currFreq].Nchan+1));
+  bufferVis = xt_alloc<std::complex<float>>(4*(Freqs[currFreq].Nchan+1));
+  TwoLinearVis = xt_alloc<std::complex<float>>(4*(Freqs[currFreq].Nchan+1));
 
-  memcpy(is1, is1orig, 2*Nvis*sizeof(bool));
-  memcpy(is2, is2orig, 2*Nvis*sizeof(bool));
+  currentData = xt_alloc<float>(12*(Freqs[currFreq].Nchan+1));
+  bufferData = xt_alloc<float>(12*(Freqs[currFreq].Nchan+1));
+
+  memcpy(is1.data(), is1orig.data(), 2*Nvis*sizeof(bool));
+  memcpy(is2.data(), is2orig.data(), 2*Nvis*sizeof(bool));
   return success;
 };
 
@@ -774,7 +739,7 @@ bool DataIOFITS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bo
     
     curridx = indexes[currVis];
     if (is1[currVis]){
-      fits_read_col(ofile, TFLOAT, Flux, curridx+1, dsize*jump+1, dsize*Nentry, NULL, currentData, NULL, &status);
+      fits_read_col(ofile, TFLOAT, Flux, curridx+1, dsize*jump+1, dsize*Nentry, NULL, currentData.data(), NULL, &status);
       antenna = an1[currVis];
       calField = field[currVis];
       otherAnt = an2[currVis];
@@ -790,7 +755,7 @@ bool DataIOFITS::getNextMixedVis(double &JDTime, int &antenna, int &otherAnt, bo
 
     } else if (is2[currVis]){
 
-      fits_read_col(ofile, TFLOAT, Flux, curridx+1, dsize*jump+1, dsize*Nentry, NULL, currentData, NULL, &status);
+      fits_read_col(ofile, TFLOAT, Flux, curridx+1, dsize*jump+1, dsize*Nentry, NULL, currentData.data(), NULL, &status);
       antenna = an2[currVis];
       otherAnt = an1[currVis];
       JDTime = JDTimes[currVis];
@@ -858,7 +823,7 @@ bool DataIOFITS::setCurrentMixedVis() {
    };
 ////////////////////
 
-   fits_write_col(ofile, TFLOAT, Flux, curridx+1, dsize*jump+1, dsize*Nentry, currentData, &status); 
+   fits_write_col(ofile, TFLOAT, Flux, curridx+1, dsize*jump+1, dsize*Nentry, currentData.data(), &status); 
    fits_flush_file(ofile,&status);
 
    if (status){

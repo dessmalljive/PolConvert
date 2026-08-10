@@ -47,6 +47,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <complex>
 #include <sstream> 
 #include <iomanip>
+#include <vector>
+#include "XTHelpers.h"
 
 #define EPSILON 0.00001
 
@@ -174,8 +176,8 @@ static PyObject *XPCal(PyObject *self, PyObject *args)
   
   double T, inT, Tini, Tbuf; 
   double Re=0.0, Im=0.0, nui=0.0;
-  double NEntry, *NWrap;
-  NWrap = nullptr;
+  double NEntry;
+  xt::xtensor<double,1> NWrap;
 
   int Aux = 0; int Aux2 = 0;
   int auxNTone, NTone, NToneHf=0, TPI, i,j,l;
@@ -184,16 +186,28 @@ static PyObject *XPCal(PyObject *self, PyObject *args)
   std::string TelName, line, auxStr;
   std::istringstream tempStr, auxTempStr;
 
-  cplx64d *PCalsX=nullptr, *PCalsY=nullptr, PCalTemp, *PCalsD=nullptr; 
-  double *PCalsAX=nullptr, *PCalsAY= nullptr; 
-  double *PCalNus=nullptr, MinNu;
-  double *RateFitXtt=nullptr, *RateFitXpt=nullptr, *RateFitXt=nullptr, *RateFitXp=nullptr;
-  double *PrevPhX=nullptr, *NGoods=nullptr;
-  bool *goodX=nullptr, *goodY=nullptr, RepNu;
+  xt::xtensor<cplx64d,1> PCalsX, PCalsY, PCalsD;
+  cplx64d PCalTemp;
+// NOTE: PCalsAX is handed off to NumPy as a non-owning array buffer
+// (via PyArray_SimpleNewFromData, without NPY_ARRAY_OWNDATA) below, so it
+// must remain a plain, unmanaged heap pointer (same as the original code)
+// rather than an RAII xtensor container, to avoid a use-after-free once
+// this function returns.
+  double *PCalsAX = nullptr;
+  xt::xtensor<double,1> PCalsAY;
+  xt::xtensor<double,1> PCalNus;
+  double MinNu;
+  xt::xtensor<double,1> RateFitXtt, RateFitXpt, RateFitXt, RateFitXp;
+  xt::xtensor<double,1> PrevPhX, NGoods;
+  xt::xtensor<bool,1> goodX, goodY;
+  bool RepNu;
 
-  int *NTimes=nullptr, *TBUFF=nullptr;
+  xt::xtensor<int,1> NTimes, TBUFF;
 
-  double **Ti=nullptr, **PDi=nullptr;
+// NOTE: Ti[0] and (indirectly, via AllOutput) PDi are also hand off raw
+// buffers to NumPy below, so they must stay plain, unmanaged `double**`
+// arrays as well (see note above).
+  double **Ti = nullptr, **PDi = nullptr;
 
   int start = 0;
 
@@ -372,29 +386,29 @@ static PyObject *XPCal(PyObject *self, PyObject *args)
         	 // Arrange memory to store results:
 
 	 	// Phasecals in each pol. channel: 
-         	PCalsX = new cplx64d[NToneHf]; 
-         	PCalsY = new cplx64d[NToneHf]; 
+         	PCalsX = xt_alloc<cplx64d>(NToneHf); 
+         	PCalsY = xt_alloc<cplx64d>(NToneHf); 
 
 	 	// Where results are accumulated:
-         	PCalsD = new cplx64d[NToneHf]; // phases
-         	PCalsAX = new double[NToneHf]; // Amplitudes X
-         	PCalsAY = new double[NToneHf]; // Amplitudes Y
+         	PCalsD = xt_alloc<cplx64d>(NToneHf); // phases
+         	PCalsAX = new double[NToneHf]; // Amplitudes X (handed off to NumPy; see note above)
+         	PCalsAY = xt_alloc<double>(NToneHf); // Amplitudes Y
 
 
 	 	// Frequency of each tone:
-         	PCalNus = new double[NToneHf];
+         	PCalNus = xt_alloc<double>(NToneHf);
 
 	 	// Auxiliary variables to fit the phase rate of each tone:
-         	RateFitXtt = new double[NToneHf];
-         	RateFitXpt = new double[NToneHf];
-         	RateFitXt = new double[NToneHf];
-         	RateFitXp = new double[NToneHf];
+         	RateFitXtt = xt_alloc<double>(NToneHf);
+         	RateFitXpt = xt_alloc<double>(NToneHf);
+         	RateFitXt = xt_alloc<double>(NToneHf);
+         	RateFitXp = xt_alloc<double>(NToneHf);
 
 	 	// Previous phase values:
-         	PrevPhX = new double[NToneHf];
+         	PrevPhX = xt_alloc<double>(NToneHf);
 
 		 // Number of accumulated 2pi wraps (one value per tone):
-	         NWrap = new double[NToneHf];
+	         NWrap = xt_alloc<double>(NToneHf);
 
 		 // Time offset at which the tones are given:
 		 Ti = new double*[NToneHf]; 
@@ -403,19 +417,19 @@ static PyObject *XPCal(PyObject *self, PyObject *args)
 		 PDi = new double*[NToneHf];
 
 		 // Number of phase values given for each tone:
-	         NTimes = new int[NToneHf];
+	         NTimes = xt_alloc<int>(NToneHf);
 
 		 // Maximum number of phase values per tone
 		 // (if needed, it is reset at runtime)
-        	 TBUFF = new int[NToneHf];
+        	 TBUFF = xt_alloc<int>(NToneHf);
 
 		 // Number of successful tone detections for each frequency
 		 // (defined as a double, for practical reasons)
-	         NGoods = new double[NToneHf];
+	         NGoods = xt_alloc<double>(NToneHf);
 
 		 // Whether there have been good detections at each pol. channel
 		 // in the current integration time:
-        	 goodX = new bool[NToneHf]; goodY = new bool[NToneHf];
+        	 goodX = xt_alloc<bool>(NToneHf); goodY = xt_alloc<bool>(NToneHf);
 
 		 // Fill- in default values for all variables:
         	 for(j=0;j<NToneHf; j++){
@@ -729,20 +743,10 @@ for(j=0;j<Aux;j++){
   
 
 
- // Release memory:
-  delete[] PCalsX;
-  delete[] PCalsY;
-  delete[] PCalsAY;
-  delete[] PCalsD;
-  delete[] PCalNus;
-  delete[] RateFitXpt;
-  delete[] RateFitXtt;
-  delete[] RateFitXp;
-  delete[] RateFitXt;
-  delete[] PrevPhX;
-  delete[] goodX; 
-  delete[] goodY;
-  delete[] NWrap;
+ // PCalsX/PCalsY/PCalsAY/PCalsD/PCalNus/RateFitX*/PrevPhX/goodX/goodY/NWrap
+ // are xtensor-managed now and free themselves. PCalsAX, Ti, and PDi are
+ // deliberately left unmanaged since they (or copies of their data) are
+ // handed off to NumPy below.
 
 
   // Arrange data for output to Python:
@@ -770,7 +774,6 @@ for(j=0;j<Aux;j++){
     dims2[1] = (long) NTimes[0];
     PyObject *PDiOutput = PyArray_SimpleNewFromData(2, dims2, NPY_FLOAT64, AllOutput);
 
-    delete[] NTimes;
     ret = Py_BuildValue("[O,O,O,O,O,O,d,O,O,O]",XYnu,XYadd,XRates,XYDels,XYPhases,XYFreqs,Tini,XAmps,TimesOutput,PDiOutput);
     return ret;
 
@@ -815,9 +818,9 @@ static PyObject *XPConvert(PyObject *self, PyObject *args)
   int NewBuffSize = BuffSize;
 
 // Buffers for pcals:
-  int *PCalNus = (int *) malloc(BuffSize*sizeof(int));
-  double *LastPcalRe = (double *) malloc(BuffSize*sizeof(double));
-  double *LastPcalIm = (double *) malloc(BuffSize*sizeof(double));
+  xt::xtensor<int,1> PCalNus = xt_alloc<int>(BuffSize);
+  xt::xtensor<double,1> LastPcalRe = xt_alloc<double>(BuffSize);
+  xt::xtensor<double,1> LastPcalIm = xt_alloc<double>(BuffSize);
   int NPCals = 0;
 
   for (i=0; i<BuffSize; i++){
@@ -907,9 +910,9 @@ static PyObject *XPConvert(PyObject *self, PyObject *args)
 	       // Unlikely re-buffering:
 	       if (NPCals >= BuffSize){
 		 NewBuffSize += BuffSize;      
-		 PCalNus = (int *) realloc(PCalNus, NewBuffSize*sizeof(int));
-		 LastPcalRe = (double *) realloc(LastPcalRe, NewBuffSize*sizeof(double));
-		 LastPcalIm = (double *) realloc(LastPcalIm, NewBuffSize*sizeof(double));
+		 xt_grow(PCalNus, NewBuffSize);
+		 xt_grow(LastPcalRe, NewBuffSize);
+		 xt_grow(LastPcalIm, NewBuffSize);
                  for (k=NPCals; k<NewBuffSize; k++){
 		   PCalNus[k] = -1; LastPcalRe[k] = 0.0; LastPcalIm[k] = 0.0; 
 		 };    
@@ -981,11 +984,6 @@ static PyObject *XPConvert(PyObject *self, PyObject *args)
   OutPcal.close();
   PcalF.close();
   
-  free(PCalNus); 
-  free(LastPcalRe);
-  free(LastPcalIm);
-  
-
 // Return with no problems:
 ret = Py_BuildValue("i",0);
 return ret;

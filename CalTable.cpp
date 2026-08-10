@@ -45,9 +45,11 @@ CalTable::CalTable(int kind, FILE *logF){
   isTsys = kind==3;
   JDRange[0] = 0.; JDRange[1]=1.e20;
   gainChanged = true;
-  Freqs = new double[1]; Freqs[0] = 1.0;
-  Time = new double*[1];
-  Time[0] = new double[1]; Time[0][0] = 1.0;
+  Freqs = xt::xtensor<double,1>(xt::xtensor<double,1>::shape_type({(std::size_t)1}));
+  Freqs(0) = 1.0;
+  Time.resize(1);
+  Time[0] = xt::xtensor<double,1>(xt::xtensor<double,1>::shape_type({(std::size_t)1}));
+  Time[0](0) = 1.0;
   Verbose = false;
 };
 
@@ -71,30 +73,29 @@ CalTable::CalTable(int kind, double **R1, double **P1,double **R2,double **P2,
   isLinear = islinear;      
 //      isTsys = istsys;
 
-  firstTime = new bool[Nants];
+  firstTime = xt::xtensor<bool,1>(xt::xtensor<bool,1>::shape_type({(std::size_t)Nants}));
 
   isDelay = kind==1;
   isDterm = kind==2;
   isTsys = kind==3;
   gainChanged = true;
 
-  Ntimes = new long[Nants];
-  std::memcpy(Ntimes,Nt,sizeof(long)*Nants);
+  Ntimes.assign(Nt, Nt+Nants);
 
-  Time = new double*[Nants];
-  flags = new bool*[Nants];
+  Time.resize(Nants);
+  flags.resize(Nants);
 
   int ia;
   for (ia=0; ia<Nants; ia++){
-    firstTime[ia] = true;
-    Time[ia] = new double[Ntimes[ia]];
-    flags[ia] = new bool[Ntimes[ia]*Nchan];
-    std::memcpy(Time[ia],times[ia],sizeof(double)*Ntimes[ia]);
-    std::memcpy(flags[ia],flag[ia],sizeof(bool)*Ntimes[ia]*Nchan);
+    firstTime(ia) = true;
+    Time[ia] = xt::xtensor<double,1>(xt::xtensor<double,1>::shape_type({(std::size_t)Ntimes[ia]}));
+    flags[ia] = xt::xtensor<bool,2>(xt::xtensor<bool,2>::shape_type({(std::size_t)Nchan,(std::size_t)Ntimes[ia]}));
+    std::memcpy(Time[ia].data(),times[ia],sizeof(double)*Ntimes[ia]);
+    std::memcpy(flags[ia].data(),flag[ia],sizeof(bool)*Ntimes[ia]*Nchan);
   };
 
-  Freqs = new double[Nchan];
-  std::memcpy(Freqs,freqs,sizeof(double)*Nchan);
+  Freqs = xt::xtensor<double,1>(xt::xtensor<double,1>::shape_type({(std::size_t)Nchan}));
+  std::memcpy(Freqs.data(),freqs,sizeof(double)*Nchan);
 
 
 
@@ -102,34 +103,31 @@ CalTable::CalTable(int kind, double **R1, double **P1,double **R2,double **P2,
   long i, j, k, auxI;
   JDRange[1] = 0.0;
   JDRange[0] = 1.e20;
-  GainAmp[0] = new double**[Nants];
-  GainAmp[1] = new double**[Nants];
-  GainPhase[0] = new double**[Nants];
-  GainPhase[1] = new double**[Nants];
+  GainAmp[0].resize(Nants);
+  GainAmp[1].resize(Nants);
+  GainPhase[0].resize(Nants);
+  GainPhase[1].resize(Nants);
   for (i=0; i<Nants; i++){
-    if (Time[i][0]<JDRange[0]){JDRange[0] = Time[i][0];};
-    if (Time[i][Ntimes[i]-1]>JDRange[1]){JDRange[1] = Time[i][Ntimes[i]-1];};
-    GainAmp[0][i] = new double*[Nchan];
-    GainAmp[1][i] = new double*[Nchan];
-    GainPhase[0][i] = new double*[Nchan];
-    GainPhase[1][i] = new double*[Nchan];
+    if (Time[i](0)<JDRange[0]){JDRange[0] = Time[i](0);};
+    if (Time[i](Ntimes[i]-1)>JDRange[1]){JDRange[1] = Time[i](Ntimes[i]-1);};
+    xt::xtensor<double,2>::shape_type shp({(std::size_t)Nchan,(std::size_t)Ntimes[i]});
+    GainAmp[0][i] = xt::xtensor<double,2>(shp);
+    GainAmp[1][i] = xt::xtensor<double,2>(shp);
+    GainPhase[0][i] = xt::xtensor<double,2>(shp);
+    GainPhase[1][i] = xt::xtensor<double,2>(shp);
     for (j=0; j<Nchan; j++) {
-      GainAmp[0][i][j] = new double[Ntimes[i]];
-      GainAmp[1][i][j] = new double[Ntimes[i]];
-      GainPhase[0][i][j] = new double[Ntimes[i]];
-      GainPhase[1][i][j] = new double[Ntimes[i]];
       for (k=0; k<Ntimes[i]; k++){
         auxI = j*Ntimes[i]+k; 
-        GainAmp[0][i][j][k] = R1[i][auxI];
-        GainAmp[1][i][j][k] = R2[i][auxI];
-        GainPhase[0][i][j][k] = P1[i][auxI];
-        GainPhase[1][i][j][k] = P2[i][auxI];
+        GainAmp[0][i](j,k) = R1[i][auxI];
+        GainAmp[1][i](j,k) = R2[i][auxI];
+        GainPhase[0][i](j,k) = P1[i][auxI];
+        GainPhase[1][i](j,k) = P2[i][auxI];
       };
     };
   };
 
   if (Nchan>1) {
-    SignFreq = (Freqs[1]>Freqs[0]);
+    SignFreq = (Freqs(1)>Freqs(0));
   } else {
     SignFreq = true; // arbitrary; with Nchan<=1 no interpolateable list of freqs, and Nchan==1 anyway a special case in fillGaps()
   }
@@ -139,29 +137,29 @@ CalTable::CalTable(int kind, double **R1, double **P1,double **R2,double **P2,
 
 // Set default channel mapping to 1->1:
 
-  preKt = new double[Nants];
-  pret0 = new long[Nants];
-  pret1 = new long[Nants];
+  preKt = xt::xtensor<double,1>(xt::xtensor<double,1>::shape_type({(std::size_t)Nants}));
+  pret0 = xt::xtensor<long,1>(xt::xtensor<long,1>::shape_type({(std::size_t)Nants}));
+  pret1 = xt::xtensor<long,1>(xt::xtensor<long,1>::shape_type({(std::size_t)Nants}));
   currTime = -1.0;
-  bufferGain[0] = new std::complex<float>*[Nants];
-  bufferGain[1] = new std::complex<float>*[Nants];
+  bufferGain[0].resize(Nants);
+  bufferGain[1].resize(Nants);
 
   for (auxI=0;auxI<Nants;auxI++) {
-    pret0[auxI] = 0;
-    pret1[auxI] = 0;
-    preKt[auxI] = -1.0;
-    bufferGain[0][auxI] = new std::complex<float>[Nchan];
-    bufferGain[1][auxI] = new std::complex<float>[Nchan];
+    pret0(auxI) = 0;
+    pret1(auxI) = 0;
+    preKt(auxI) = -1.0;
+    bufferGain[0][auxI] = xt::xtensor<std::complex<float>,1>(xt::xtensor<std::complex<float>,1>::shape_type({(std::size_t)Nchan}));
+    bufferGain[1][auxI] = xt::xtensor<std::complex<float>,1>(xt::xtensor<std::complex<float>,1>::shape_type({(std::size_t)Nchan}));
   };
-  K0 = new double[Nchan];
-  I0 = new long[Nchan];
-  I1 = new long[Nchan];
+  K0 = xt::xtensor<double,1>(xt::xtensor<double,1>::shape_type({(std::size_t)Nchan}));
+  I0 = xt::xtensor<long,1>(xt::xtensor<long,1>::shape_type({(std::size_t)Nchan}));
+  I1 = xt::xtensor<long,1>(xt::xtensor<long,1>::shape_type({(std::size_t)Nchan}));
 
   MSChan = Nchan;
   for (auxI = 0; auxI<Nchan; auxI++) {
-    K0[auxI] = 1.0;
-    I0[auxI] = auxI;
-    I1[auxI] = 0;
+    K0(auxI) = 1.0;
+    I0(auxI) = auxI;
+    I1(auxI) = 0;
   };
 
 };
@@ -206,7 +204,7 @@ fclose(gainFile);
  if (Nchan==1){
    for (ant=0; ant<Nants; ant++) {
      allflagged = true;
-     for (tidx=0; tidx<Ntimes[ant]; tidx++) { if(!flags[ant][tidx]){allflagged=false;break;};};
+     for (tidx=0; tidx<Ntimes[ant]; tidx++) { if(!flags[ant](0,tidx)){allflagged=false;break;};};
      if (allflagged){
        sprintf(message,"\nWARNING: ALMA ANTENNA #%i HAS ALL ITS TIMES FLAGGED!\n",ant);
        fprintf(logFile,"%s",message);
@@ -215,61 +213,61 @@ fclose(gainFile);
        fflush(logFile);
        for (tidx=0; tidx<Ntimes[ant]; tidx++) {
          if(isDterm){
-           GainAmp[0][ant][0][tidx] = 0.0;
-           GainAmp[1][ant][0][tidx] = 0.0;
+           GainAmp[0][ant](0,tidx) = 0.0;
+           GainAmp[1][ant](0,tidx) = 0.0;
          } else {
-           GainAmp[0][ant][0][tidx] = 0.0;
-           GainAmp[1][ant][0][tidx] = 0.0;
+           GainAmp[0][ant](0,tidx) = 0.0;
+           GainAmp[1][ant](0,tidx) = 0.0;
          };
-         GainPhase[0][ant][0][tidx] = 0.0;
-         GainPhase[1][ant][0][tidx] = 0.0;
-         flags[ant][tidx] = false;
+         GainPhase[0][ant](0,tidx) = 0.0;
+         GainPhase[1][ant](0,tidx) = 0.0;
+         flags[ant](0,tidx) = false;
        };
      };
 
   // Determine first unflagged time:
     for (tidx=0; tidx<Ntimes[ant]; tidx++) {
-      if (!flags[ant][tidx]){auxI=tidx;break;};};   //REVISAR
+      if (!flags[ant](0,tidx)){auxI=tidx;break;};};   //REVISAR
   // Fill the first flagged channels:
      for (index=0; index<auxI; index++){
-       GainAmp[0][ant][0][index] = GainAmp[0][ant][0][auxI];
-       GainAmp[1][ant][0][index] = GainAmp[1][ant][0][auxI];
-       GainPhase[0][ant][0][index] = GainPhase[0][ant][0][auxI];
-       GainPhase[1][ant][0][index] = GainPhase[1][ant][0][auxI];
-       flags[ant][index] = false;            // REVISAR
+       GainAmp[0][ant](0,index) = GainAmp[0][ant](0,auxI);
+       GainAmp[1][ant](0,index) = GainAmp[1][ant](0,auxI);
+       GainPhase[0][ant](0,index) = GainPhase[0][ant](0,auxI);
+       GainPhase[1][ant](0,index) = GainPhase[1][ant](0,auxI);
+       flags[ant](0,index) = false;            // REVISAR
      };
 
   // Determine last unflagged channel
     for (tidx=Ntimes[ant]-1; tidx>=0; tidx --) {
-      if (!flags[ant][tidx]){auxI=tidx;break;};
+      if (!flags[ant](0,tidx)){auxI=tidx;break;};
     };  // REVISAR
 
   // Fill the last flagged channels:
     for (index=auxI+1; index<Ntimes[ant]; index++){  // REVISAR
-       GainAmp[0][ant][0][index] = GainAmp[0][ant][0][auxI];
-       GainAmp[1][ant][0][index] = GainAmp[1][ant][0][auxI];
-       GainPhase[0][ant][0][index] = GainPhase[0][ant][0][auxI];
-       GainPhase[1][ant][0][index] = GainPhase[1][ant][0][auxI];
-       flags[ant][index] = false;            // REVISAR
+       GainAmp[0][ant](0,index) = GainAmp[0][ant](0,auxI);
+       GainAmp[1][ant](0,index) = GainAmp[1][ant](0,auxI);
+       GainPhase[0][ant](0,index) = GainPhase[0][ant](0,auxI);
+       GainPhase[1][ant](0,index) = GainPhase[1][ant](0,auxI);
+       flags[ant](0,index) = false;            // REVISAR
     };
 
   // Look for flagged time ranges and interpolate them:
    firstflag = false;
    for (tidx=0; tidx<Ntimes[ant]; tidx++) {
-     if (!firstflag && flags[ant][tidx]){firstflag = true; auxI=tidx-1;};  // REVISAR
-     if (firstflag && !flags[ant][tidx]){
+     if (!firstflag && flags[ant](0,tidx)){firstflag = true; auxI=tidx-1;};  // REVISAR
+     if (firstflag && !flags[ant](0,tidx)){
        firstflag = false;
        for (auxI2=auxI+1; auxI2<tidx; auxI2++) {
          frchan = ((double) (auxI2-auxI))/((double) (tidx-auxI));
-         GainAmp[0][ant][0][auxI2] = GainAmp[0][ant][0][tidx]*frchan;
-         GainAmp[0][ant][0][auxI2] += GainAmp[0][ant][0][auxI]*(1.-frchan);
-         GainAmp[1][ant][0][auxI2] = GainAmp[1][ant][0][tidx]*frchan;
-         GainAmp[1][ant][0][auxI2] += GainAmp[1][ant][0][auxI]*(1.-frchan);
-         GainPhase[0][ant][0][auxI2] = GainPhase[0][ant][0][tidx]*frchan;
-         GainPhase[0][ant][0][auxI2] += GainPhase[0][ant][0][auxI]*(1.-frchan);
-         GainPhase[1][ant][0][auxI2] = GainPhase[1][ant][0][tidx]*frchan;
-         GainPhase[1][ant][0][auxI2] += GainPhase[1][ant][0][auxI]*(1.-frchan);
-         flags[ant][auxI2] = false;            // REVISAR
+         GainAmp[0][ant](0,auxI2) = GainAmp[0][ant](0,tidx)*frchan;
+         GainAmp[0][ant](0,auxI2) += GainAmp[0][ant](0,auxI)*(1.-frchan);
+         GainAmp[1][ant](0,auxI2) = GainAmp[1][ant](0,tidx)*frchan;
+         GainAmp[1][ant](0,auxI2) += GainAmp[1][ant](0,auxI)*(1.-frchan);
+         GainPhase[0][ant](0,auxI2) = GainPhase[0][ant](0,tidx)*frchan;
+         GainPhase[0][ant](0,auxI2) += GainPhase[0][ant](0,auxI)*(1.-frchan);
+         GainPhase[1][ant](0,auxI2) = GainPhase[1][ant](0,tidx)*frchan;
+         GainPhase[1][ant](0,auxI2) += GainPhase[1][ant](0,auxI)*(1.-frchan);
+         flags[ant](0,auxI2) = false;            // REVISAR
        };
      };
    };
@@ -287,7 +285,7 @@ fclose(gainFile);
         index = tidx;   // REVISAR
 
         for (chan=0; chan<Nchan; chan ++) {
-          if(!flags[ant][chan*Ntimes[ant]+index]){allflagged=false;};            // REVISAR
+          if(!flags[ant](chan,index)){allflagged=false;};            // REVISAR
         };
 
        if (allflagged){
@@ -298,15 +296,15 @@ fclose(gainFile);
          fflush(logFile);
          for (chan=0; chan<Nchan; chan ++) {
            if(isDterm){
-             GainAmp[0][ant][chan][tidx] = 0.0;
-             GainAmp[1][ant][chan][tidx] = 0.0;
+             GainAmp[0][ant](chan,tidx) = 0.0;
+             GainAmp[1][ant](chan,tidx) = 0.0;
            } else {
-             GainAmp[0][ant][chan][tidx] = 1.0;
-             GainAmp[1][ant][chan][tidx] = 1.0;
+             GainAmp[0][ant](chan,tidx) = 1.0;
+             GainAmp[1][ant](chan,tidx) = 1.0;
            };
-           GainPhase[0][ant][chan][tidx] = 0.0;
-           GainPhase[1][ant][chan][tidx] = 0.0;
-           flags[ant][chan*Ntimes[ant]+index] = false;
+           GainPhase[0][ant](chan,tidx) = 0.0;
+           GainPhase[1][ant](chan,tidx) = 0.0;
+           flags[ant](chan,index) = false;
         };
       };
 
@@ -314,52 +312,52 @@ fclose(gainFile);
 
   // Determine first unflagged channel
     for (chan=0; chan<Nchan; chan ++) {
-      if (!flags[ant][chan*Ntimes[ant]+index]){auxI=chan;break;};
+      if (!flags[ant](chan,index)){auxI=chan;break;};
     };   //REVISAR
 
   // Fill the first flagged channels:
     for (chan=0; chan<auxI; chan++){
-       GainAmp[0][ant][chan][tidx] = GainAmp[0][ant][auxI][tidx];
-       GainAmp[1][ant][chan][tidx] = GainAmp[1][ant][auxI][tidx];
-       GainPhase[0][ant][chan][tidx] = GainPhase[0][ant][auxI][tidx];
-       GainPhase[1][ant][chan][tidx] = GainPhase[1][ant][auxI][tidx];
-       flags[ant][chan*Ntimes[ant]+index] = false;            // REVISAR
+       GainAmp[0][ant](chan,tidx) = GainAmp[0][ant](auxI,tidx);
+       GainAmp[1][ant](chan,tidx) = GainAmp[1][ant](auxI,tidx);
+       GainPhase[0][ant](chan,tidx) = GainPhase[0][ant](auxI,tidx);
+       GainPhase[1][ant](chan,tidx) = GainPhase[1][ant](auxI,tidx);
+       flags[ant](chan,index) = false;            // REVISAR
     };
 
   // Determine last unflagged channel
     for (chan=Nchan-1; chan>=0; chan --) {
-       if (!flags[ant][chan*Ntimes[ant]+index]){auxI=chan;break;};
+       if (!flags[ant](chan,index)){auxI=chan;break;};
     };  // REVISAR
 
   // Fill the last flagged channels:
     for (chan=auxI+1; chan<Nchan; chan++){  // REVISAR
-       GainAmp[0][ant][chan][tidx] = GainAmp[0][ant][auxI][tidx];
-       GainAmp[1][ant][chan][tidx] = GainAmp[1][ant][auxI][tidx];
-       GainPhase[0][ant][chan][tidx] = GainPhase[0][ant][auxI][tidx];
-       GainPhase[1][ant][chan][tidx] = GainPhase[1][ant][auxI][tidx];
-       flags[ant][chan*Ntimes[ant]+index] = false;            // REVISAR
+       GainAmp[0][ant](chan,tidx) = GainAmp[0][ant](auxI,tidx);
+       GainAmp[1][ant](chan,tidx) = GainAmp[1][ant](auxI,tidx);
+       GainPhase[0][ant](chan,tidx) = GainPhase[0][ant](auxI,tidx);
+       GainPhase[1][ant](chan,tidx) = GainPhase[1][ant](auxI,tidx);
+       flags[ant](chan,index) = false;            // REVISAR
     };
 
   // Look for flagged regions within the band and interpolate them:
    firstflag = false;
    for (chan=0; chan<Nchan; chan++) {
-     if (!firstflag && flags[ant][chan*Ntimes[ant]+index]){
+     if (!firstflag && flags[ant](chan,index)){
         firstflag = true; auxI=chan-1;
      };  // REVISAR
 
-     if (firstflag && !flags[ant][chan*Ntimes[ant]+index]){
+     if (firstflag && !flags[ant](chan,index)){
        firstflag = false;
        for (auxI2=auxI+1; auxI2<chan; auxI2++) {
          frchan = ((double) (auxI2-auxI))/((double) (chan-auxI));
-         GainAmp[0][ant][auxI2][tidx] = GainAmp[0][ant][chan][tidx]*frchan;
-         GainAmp[0][ant][auxI2][tidx] += GainAmp[0][ant][auxI][tidx]*(1.-frchan);
-         GainAmp[1][ant][auxI2][tidx] = GainAmp[1][ant][chan][tidx]*frchan;
-         GainAmp[1][ant][auxI2][tidx] += GainAmp[1][ant][auxI][tidx]*(1.-frchan);
-         GainPhase[0][ant][auxI2][tidx] = GainPhase[0][ant][chan][tidx]*frchan;
-         GainPhase[0][ant][auxI2][tidx] += GainPhase[0][ant][auxI][tidx]*(1.-frchan);
-         GainPhase[1][ant][auxI2][tidx] = GainPhase[1][ant][chan][tidx]*frchan;
-         GainPhase[1][ant][auxI2][tidx] += GainPhase[1][ant][auxI][tidx]*(1.-frchan);
-         flags[ant][auxI2*Ntimes[ant]+index] = false;            // REVISAR
+         GainAmp[0][ant](auxI2,tidx) = GainAmp[0][ant](chan,tidx)*frchan;
+         GainAmp[0][ant](auxI2,tidx) += GainAmp[0][ant](auxI,tidx)*(1.-frchan);
+         GainAmp[1][ant](auxI2,tidx) = GainAmp[1][ant](chan,tidx)*frchan;
+         GainAmp[1][ant](auxI2,tidx) += GainAmp[1][ant](auxI,tidx)*(1.-frchan);
+         GainPhase[0][ant](auxI2,tidx) = GainPhase[0][ant](chan,tidx)*frchan;
+         GainPhase[0][ant](auxI2,tidx) += GainPhase[0][ant](auxI,tidx)*(1.-frchan);
+         GainPhase[1][ant](auxI2,tidx) = GainPhase[1][ant](chan,tidx)*frchan;
+         GainPhase[1][ant](auxI2,tidx) += GainPhase[1][ant](auxI,tidx)*(1.-frchan);
+         flags[ant](auxI2,index) = false;            // REVISAR
        };
      };
    };
@@ -397,10 +395,10 @@ void CalTable::getTimeRange(double *JD) {JD[0] = JDRange[0];JD[1]=JDRange[1];};
 void CalTable::setChanged(bool ch){gainChanged = ch;};
 
 void CalTable::getFreqRange(double *Fr) {
-  if(Freqs[0]<Freqs[Nchan-1]){
-    Fr[0] = Freqs[0]; Fr[1] = Freqs[Nchan-1];
+  if(Freqs(0)<Freqs(Nchan-1)){
+    Fr[0] = Freqs(0); Fr[1] = Freqs(Nchan-1);
   } else {
-    Fr[1] = Freqs[0]; Fr[0] = Freqs[Nchan-1];
+    Fr[1] = Freqs(0); Fr[0] = Freqs(Nchan-1);
   };
 };
 
@@ -408,14 +406,14 @@ void CalTable::getFreqRange(double *Fr) {
 
 // Freqs arrays are protected. Copy them to memory block out of instance:
 void CalTable::getFrequencies(double *freqs) {
-  std::memcpy(freqs,Freqs,sizeof(double)*Nchan);
+  std::memcpy(freqs,Freqs.data(),sizeof(double)*Nchan);
 };
 
 
 // Time arrays are protected. Copy them to memory block out of instance:
 void CalTable::getTimes(int ant, double *times) {
-  std::memcpy(times,Time[ant],sizeof(double)*Ntimes[ant]);
- // printf("TIMES: %.8e -  %.8e\n",Time[ant][0],times[0]);
+  std::memcpy(times,Time[ant].data(),sizeof(double)*Ntimes[ant]);
+ // printf("TIMES: %.8e -  %.8e\n",Time[ant](0),times[0]);
 };
 
 
@@ -425,10 +423,10 @@ void CalTable::getGains(int ant, long timeidx, double *gain[4])
   if(Nants<0){return;};
   long i;
   for (i=0; i< Nchan; i++) {
-   gain[0][i] = GainAmp[0][ant][i][timeidx];
-   gain[1][i] = GainAmp[1][ant][i][timeidx];
-   gain[2][i] = GainPhase[0][ant][i][timeidx];
-   gain[3][i] = GainPhase[1][ant][i][timeidx];
+   gain[0][i] = GainAmp[0][ant](i,timeidx);
+   gain[1][i] = GainAmp[1][ant](i,timeidx);
+   gain[2][i] = GainPhase[0][ant](i,timeidx);
+   gain[3][i] = GainPhase[1][ant](i,timeidx);
   };
 };
 
@@ -447,26 +445,20 @@ void CalTable::setMapping(long mschan, double *freqs)
 
 
   long i, auxI;
-  delete[] K0;
-  delete[] I0;
-  delete[] I1;
-
 
   for (i=0; i<Nants; i++) {
-    preKt[i] = -1.0 ;
-    delete[] bufferGain[0][i];
-    delete[] bufferGain[1][i];
-    bufferGain[0][i] = new std::complex<float>[mschan];
-    bufferGain[1][i] = new std::complex<float>[mschan];
+    preKt(i) = -1.0 ;
+    bufferGain[0][i] = xt::xtensor<std::complex<float>,1>(xt::xtensor<std::complex<float>,1>::shape_type({(std::size_t)mschan}));
+    bufferGain[1][i] = xt::xtensor<std::complex<float>,1>(xt::xtensor<std::complex<float>,1>::shape_type({(std::size_t)mschan}));
   };
 
 
   deltaNu = ((freqs[1]-freqs[0])/1.e9);
-  deltaNu0 = ((freqs[0]-Freqs[0])/1.e9);
+  deltaNu0 = ((freqs[0]-Freqs(0))/1.e9);
 
-  K0 = new double[mschan];
-  I0 = new long[mschan];
-  I1 = new long[mschan];
+  K0 = xt::xtensor<double,1>(xt::xtensor<double,1>::shape_type({(std::size_t)mschan}));
+  I0 = xt::xtensor<long,1>(xt::xtensor<long,1>::shape_type({(std::size_t)mschan}));
+  I1 = xt::xtensor<long,1>(xt::xtensor<long,1>::shape_type({(std::size_t)mschan}));
 
   MSChan = mschan;
   double mmod;
@@ -474,19 +466,19 @@ void CalTable::setMapping(long mschan, double *freqs)
 if (SignFreq && Nchan>=1) {
 
   for (i=0; i<mschan; i++) {
-    if (freqs[i] <= Freqs[0]){
-      I0[i]=0; I1[i] = 0;
-      K0[i] = 1.0;}
-    else if (freqs[i] >= Freqs[Nchan-1]){
-      I0[i]=Nchan-1; I1[i] = 0;
-      K0[i] = 1.0;}
+    if (freqs[i] <= Freqs(0)){
+      I0(i)=0; I1(i) = 0;
+      K0(i) = 1.0;}
+    else if (freqs[i] >= Freqs(Nchan-1)){
+      I0(i)=Nchan-1; I1(i) = 0;
+      K0(i) = 1.0;}
     else {
       for (auxI=Nchan-1; auxI>=0; auxI--) {
-        if (freqs[i] >= Freqs[auxI]) {
-           I0[i] = auxI;
-           I1[i] = auxI+1;
-           mmod = Freqs[auxI+1]-Freqs[auxI];
-           K0[i] = (1.0-(freqs[i]-Freqs[auxI])/mmod);
+        if (freqs[i] >= Freqs(auxI)) {
+           I0(i) = auxI;
+           I1(i) = auxI+1;
+           mmod = Freqs(auxI+1)-Freqs(auxI);
+           K0(i) = (1.0-(freqs[i]-Freqs(auxI))/mmod);
            break;
         };
       };
@@ -496,19 +488,19 @@ if (SignFreq && Nchan>=1) {
 } else if(Nchan>=1) {
 
   for (i=0; i<mschan; i++) {
-    if (freqs[i] >= Freqs[0]){
-      I0[i]=0; I1[i] = 0;
-      K0[i] = 1.0;}
-    else if (freqs[i] <= Freqs[Nchan-1]){
-      I0[i]=Nchan-1; I1[i] = 0;
-      K0[i] = 1.0;}
+    if (freqs[i] >= Freqs(0)){
+      I0(i)=0; I1(i) = 0;
+      K0(i) = 1.0;}
+    else if (freqs[i] <= Freqs(Nchan-1)){
+      I0(i)=Nchan-1; I1(i) = 0;
+      K0(i) = 1.0;}
     else {
       for (auxI=Nchan-1; auxI>=0; auxI--) {
-        if (freqs[i] <= Freqs[auxI]) {
-           I0[i] = auxI;
-           I1[i] = auxI+1;
-           mmod = Freqs[auxI+1]-Freqs[auxI];
-           K0[i] = (1.0-(freqs[i]-Freqs[auxI])/mmod);
+        if (freqs[i] <= Freqs(auxI)) {
+           I0(i) = auxI;
+           I1(i) = auxI+1;
+           mmod = Freqs(auxI+1)-Freqs(auxI);
+           K0(i) = (1.0-(freqs[i]-Freqs(auxI))/mmod);
            break;
         };
       };
@@ -553,23 +545,23 @@ bool CalTable::setInterpolationTime(double itime) {
      printf("Ant %i has %li times \n",iant,Nts); fflush(stdout);
    };
    if (Nts == 1) {
-     pret0[iant] = 0;
-     pret1[iant] = 0;
-     if (preKt[iant]<0.0){gainChanged=true;};
-     preKt[iant] = 1.0;
+     pret0(iant) = 0;
+     pret1(iant) = 0;
+     if (preKt(iant)<0.0){gainChanged=true;};
+     preKt(iant) = 1.0;
    } else {
   
-     if (itime<=Time[iant][0]) {
+     if (itime<=Time[iant](0)) {
        ti0 = 0; ti1 = 0; Kt = 1.0;} 
-     else if (itime>=Time[iant][Nts-1]) {
+     else if (itime>=Time[iant](Nts-1)) {
        ti0 = Nts-1; ti1 = 0; Kt = 1.0;}
      else {
        for (i=Nts-1; i>=0; i--) {
-         if (itime>Time[iant][i]) {
+         if (itime>Time[iant](i)) {
            ti1 = i+1;
            ti0 = i;
-           auxD = Time[iant][i];
-           auxD2 = Time[iant][i+1];
+           auxD = Time[iant](i);
+           auxD2 = Time[iant](i+1);
            if (isLinear){
              Kt = (1.0 - (itime - auxD)/(auxD2-auxD));
            } else {
@@ -580,9 +572,9 @@ bool CalTable::setInterpolationTime(double itime) {
        };
      };
 
-     pret0[iant] = ti0;
-     pret1[iant] = ti1;
-     preKt[iant] = Kt;
+     pret0(iant) = ti0;
+     pret1(iant) = ti1;
+     preKt(iant) = Kt;
      gainChanged = true;
    };
 
@@ -624,9 +616,9 @@ void CalTable::applyInterpolation(int iant, int mode, std::complex<float> *gain[
 
   if(Nants<0){return;};
 
-  ti0 = pret0[iant];
-  ti1 = pret1[iant];
-  Kt = preKt[iant];
+  ti0 = pret0(iant);
+  ti1 = pret1(iant);
+  Kt = preKt(iant);
   Kt2 = 1.0-Kt;
 
   if (Verbose){printf("indexes: %li %li  -  %.3f\n",ti0, ti1, Kt);fflush(stdout);};
@@ -635,39 +627,39 @@ void CalTable::applyInterpolation(int iant, int mode, std::complex<float> *gain[
 // Interpolate in frequency (first) and time (second):
 
 
-  if (gainChanged || firstTime[iant]) {
+  if (gainChanged || firstTime(iant)) {
 
-   firstTime[iant]=false;
+   firstTime(iant)=false;
 
  // if (true) {
 
   for (i=0; i<MSChan; i++) {
 
-     auxF0 = GainAmp[0][iant][I0[i]][ti0]*K0[i];
-     auxF1 = GainAmp[1][iant][I0[i]][ti0]*K0[i];
-     auxF2 = GainPhase[0][iant][I0[i]][ti0]*K0[i];
-     auxF3 = GainPhase[1][iant][I0[i]][ti0]*K0[i];
+     auxF0 = GainAmp[0][iant](I0(i),ti0)*K0(i);
+     auxF1 = GainAmp[1][iant](I0(i),ti0)*K0(i);
+     auxF2 = GainPhase[0][iant](I0(i),ti0)*K0(i);
+     auxF3 = GainPhase[1][iant](I0(i),ti0)*K0(i);
 
-     if (I1[i] >0) {
-       auxF0 += GainAmp[0][iant][I1[i]][ti0]*(1.-K0[i]);
-       auxF1 += GainAmp[1][iant][I1[i]][ti0]*(1.-K0[i]);
-       auxF2 += GainPhase[0][iant][I1[i]][ti0]*(1.-K0[i]);
-       auxF3 += GainPhase[1][iant][I1[i]][ti0]*(1.-K0[i]);
+     if (I1(i) >0) {
+       auxF0 += GainAmp[0][iant](I1(i),ti0)*(1.-K0(i));
+       auxF1 += GainAmp[1][iant](I1(i),ti0)*(1.-K0(i));
+       auxF2 += GainPhase[0][iant](I1(i),ti0)*(1.-K0(i));
+       auxF3 += GainPhase[1][iant](I1(i),ti0)*(1.-K0(i));
      };
 
 
      if (ti1 > 0) {
 
-     auxT0 = GainAmp[0][iant][I0[i]][ti1]*K0[i];
-     auxT1 = GainAmp[1][iant][I0[i]][ti1]*K0[i];
-     auxT2 = GainPhase[0][iant][I0[i]][ti1]*K0[i];
-     auxT3 = GainPhase[1][iant][I0[i]][ti1]*K0[i];
+     auxT0 = GainAmp[0][iant](I0(i),ti1)*K0(i);
+     auxT1 = GainAmp[1][iant](I0(i),ti1)*K0(i);
+     auxT2 = GainPhase[0][iant](I0(i),ti1)*K0(i);
+     auxT3 = GainPhase[1][iant](I0(i),ti1)*K0(i);
 
-     if (I1[i] >0) {
-       auxT0 += GainAmp[0][iant][I1[i]][ti1]*(1.-K0[i]);
-       auxT1 += GainAmp[1][iant][I1[i]][ti1]*(1.-K0[i]);
-       auxT2 += GainPhase[0][iant][I1[i]][ti1]*(1.-K0[i]);
-       auxT3 += GainPhase[1][iant][I1[i]][ti1]*(1.-K0[i]);
+     if (I1(i) >0) {
+       auxT0 += GainAmp[0][iant](I1(i),ti1)*(1.-K0(i));
+       auxT1 += GainAmp[1][iant](I1(i),ti1)*(1.-K0(i));
+       auxT2 += GainPhase[0][iant](I1(i),ti1)*(1.-K0(i));
+       auxT3 += GainPhase[1][iant](I1(i),ti1)*(1.-K0(i));
      };
         auxF0 = auxF0*Kt+auxT0*Kt2;
         auxF1 = auxF1*Kt+auxT1*Kt2;
@@ -680,21 +672,21 @@ void CalTable::applyInterpolation(int iant, int mode, std::complex<float> *gain[
 
        if (isDelay){
          auxD = TWOPI*(((double)i + 0.5)*deltaNu+deltaNu0);
-         bufferGain[0][iant][i] = (std::complex<float>) std::polar(1.0,auxF0*auxD);
-         bufferGain[1][iant][i] = (std::complex<float>) std::polar(1.0,auxF1*auxD);
+         bufferGain[0][iant](i) = (std::complex<float>) std::polar(1.0,auxF0*auxD);
+         bufferGain[1][iant](i) = (std::complex<float>) std::polar(1.0,auxF1*auxD);
        } else if (isTsys) {
-         bufferGain[0][iant][i].real(1./sqrt(auxF0));
-         bufferGain[0][iant][i].imag(0.0);
-         bufferGain[1][iant][i].real(1./sqrt(auxF1));
-         bufferGain[1][iant][i].imag(0.0);
+         bufferGain[0][iant](i).real(1./sqrt(auxF0));
+         bufferGain[0][iant](i).imag(0.0);
+         bufferGain[1][iant](i).real(1./sqrt(auxF1));
+         bufferGain[1][iant](i).imag(0.0);
        } else if (isDterm) {
-         bufferGain[0][iant][i].real(auxF0);
-         bufferGain[0][iant][i].imag(auxF2);
-         bufferGain[1][iant][i].real(auxF1);
-         bufferGain[1][iant][i].imag(auxF3);
+         bufferGain[0][iant](i).real(auxF0);
+         bufferGain[0][iant](i).imag(auxF2);
+         bufferGain[1][iant](i).real(auxF1);
+         bufferGain[1][iant](i).imag(auxF3);
        } else {
-         bufferGain[0][iant][i] = (std::complex<float>) std::polar(auxF0,auxF2);
-         bufferGain[1][iant][i] = (std::complex<float>) std::polar(auxF1,auxF3);
+         bufferGain[0][iant](i) = (std::complex<float>) std::polar(auxF0,auxF2);
+         bufferGain[1][iant](i) = (std::complex<float>) std::polar(auxF1,auxF3);
        };
 
         
@@ -710,24 +702,24 @@ void CalTable::applyInterpolation(int iant, int mode, std::complex<float> *gain[
     case 0: // Normal mode.
 
       for (i=0; i< MSChan; i++) {
-          gain[0][i] = bufferGain[0][iant][i];
-          gain[1][i] = bufferGain[1][iant][i];
+          gain[0][i] = bufferGain[0][iant](i);
+          gain[1][i] = bufferGain[1][iant](i);
       };
 
         break;
 
     case 1:   // Addition mode. 
       for (i=0; i< MSChan; i++) {
-         gain[0][i] +=  bufferGain[0][iant][i];
-         gain[1][i] +=  bufferGain[1][iant][i];
+         gain[0][i] +=  bufferGain[0][iant](i);
+         gain[1][i] +=  bufferGain[1][iant](i);
       };
 
        break;
 
     case 2:  // Product mode.
       for (i=0; i< MSChan; i++) {
-         gain[0][i] *=  bufferGain[0][iant][i]; 
-         gain[1][i] *=  bufferGain[1][iant][i];
+         gain[0][i] *=  bufferGain[0][iant](i); 
+         gain[1][i] *=  bufferGain[1][iant](i);
      };
 
        break;
@@ -753,8 +745,8 @@ bool CalTable::getInterpolation(int iant, int ichan, std::complex<float> gain[2]
     success = false;
     gain[0] = 1.0 ; gain[1] = 1.0; 
   } else {
-    gain[0] = bufferGain[0][iant][ichan];
-    gain[1] = bufferGain[1][iant][ichan];
+    gain[0] = bufferGain[0][iant](ichan);
+    gain[1] = bufferGain[1][iant](ichan);
     success = true;
   };
 

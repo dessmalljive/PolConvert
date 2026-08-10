@@ -28,7 +28,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <fstream>
 #include <math.h>
 #include <complex>
+#include <vector>
 #include "fitsio.h"
+#include "XTHelpers.h"
 
 #ifndef __DATAIO_H__
 #define __DATAIO_H__
@@ -45,16 +47,16 @@ bool SB;
 
 
 typedef struct {
-double *BaseLine[3];
-double *SinDec;
-double *CosDec;
-double *RA;
-double *AntLon;
-int *Mount;
-double *Lat;
+xt::xtensor<double,1> BaseLine[3];
+xt::xtensor<double,1> SinDec;
+xt::xtensor<double,1> CosDec;
+xt::xtensor<double,1> RA;
+xt::xtensor<double,1> AntLon;
+xt::xtensor<int,1> Mount;
+xt::xtensor<double,1> Lat;
 int NtotAnt;
 int NtotSou;
-int **BasNum;
+xt::xtensor<int,2> BasNum;
 } ArrayGeometry;
 
 
@@ -63,7 +65,7 @@ typedef struct {
     int IF;
     int Pol;
     double JD;
-    double *AC;
+    xt::xtensor<double,1> AC;
     
 } AutoCorrelation;
 
@@ -137,19 +139,25 @@ class DataIO {
 
 
    static const int MAXIF = 256;
-   FreqSetup *Freqs;
+   std::vector<FreqSetup> Freqs;
    ArrayGeometry *Geometry;
-   AutoCorrelation *AutoCorrs;
-   float ***averAutocorrs;
-   double *Freqvals[MAXIF], *doRange, *JDTimes;
-   int *Basels, *Freqids, *an1, *an2, *linAnts, *field; //, *sour;
-   double *ParAng[2];
-   double *UVDist;
+   std::vector<AutoCorrelation> AutoCorrs;
+// averAutocorrs[ant][freq] is a length-Nchan(freq) tensor (ragged across freqs).
+   std::vector<std::vector<xt::xtensor<float,1>>> averAutocorrs;
+// Freqvals[freq] is a length-Nchan(freq) tensor (ragged across freqs).
+   std::vector<xt::xtensor<double,1>> Freqvals;
+   double *doRange; // borrowed (not owned by DataIO/subclasses)
+   xt::xtensor<double,1> JDTimes;
+   xt::xtensor<int,1> Basels, an1, an2, linAnts, field;
+   xt::xtensor<double,1> ParAng[2];
+   xt::xtensor<double,1> UVDist;
    int NLinAnt, NIFs, Nband, status, Nants, Nfreqs, currFreq;
-   long NLinVis, Nvis, currVis, *indexes;
+   long NLinVis, Nvis, currVis;
+   xt::xtensor<long,1> indexes;
    bool success, currConj;
-   bool *conjugate, *is1, *is2, *is1orig, *is2orig;
-   int Flux, *NAV;
+   xt::xtensor<bool,1> is1, is2, is1orig, is2orig;
+   int Flux;
+   xt::xtensor<int,1> NAV;
    int nautos;
    double day0;
 

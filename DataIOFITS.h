@@ -30,6 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <complex>
 #include "fitsio.h"
 #include "DataIO.h"
+#include "XTHelpers.h"
 
 
 
@@ -83,23 +84,23 @@ class DataIOFITS: public DataIO {
 
     fitsfile *fptr, *ofile; 
     FILE *logFile ;
-    long *Vis2Save;
+    xt::xtensor<long,1> Vis2Save;
     long NVis2Save;
 
     int uu, vv, ww, ss;
 
-    double *Times;
+    xt::xtensor<double,1> Times;
     bool doConjugate, doWriteCirc, canPlot, doParang, isTwoLinear;
     char polOrder[4], message[512];
     long jump, Nentry, djump, dsize, TotSize;
     int currIF, currBand;
     int nDoIF;
-    int *DoIF;
-    std::complex<float> *currentVis ;
-    std::complex<float> *bufferVis ;
-    std::complex<float> *TwoLinearVis ;
+    int *DoIF; // borrowed (not owned by DataIOFITS)
+    xt::xtensor<std::complex<float>,1> currentVis ;
+    xt::xtensor<std::complex<float>,1> bufferVis ;
+    xt::xtensor<std::complex<float>,1> TwoLinearVis ;
 
-    float *currentData ;
-    float *bufferData ;
+    xt::xtensor<float,1> currentData ;
+    xt::xtensor<float,1> bufferData ;
 
 };

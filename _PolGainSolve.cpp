@@ -41,6 +41,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <complex>
 #include <dirent.h>
 #include <fftw3.h>
+#include <vector>
+#include <array>
+#include "XTHelpers.h"
 //#include <gsl/gsl_errno.h>
 //#include <gsl/gsl_linalg.h>
 
@@ -207,36 +210,50 @@ PyMODINIT_FUNC init_PolGainSolve(void)
    static double TWOPI = 6.283185307179586;
 
    int MaxChan = 1;
-   int MAXIF = 8; // Will reallocate if needed.
-   int NCalAnt, Nlin, Ncirc, *Nchan, SolMode, SolAlgor;
-   int *IFNum;
-   int *Lant, *Cant, *NVis, *NLVis, *NCVis, *CalAnts, *NScan;
-   int *Twins[2], Ntwin;
+   int MAXIF = 8; // Kept for logging; containers below grow automatically.
+   int NCalAnt, Nlin, Ncirc, SolMode, SolAlgor;
+   std::vector<int> Nchan;
+   std::vector<int> IFNum;
+   int *Lant, *Cant, *CalAnts; // borrowed (NumPy-backed)
+   std::vector<int> NVis, NLVis, NCVis, NScan;
+   int *Twins[2], Ntwin; // borrowed (NumPy-backed)
    int solveAmp, useCov, solveQU;
-   int *LinBasNum, NLinBas;
+   xt::xtensor<int,1> LinBasNum;
+   int NLinBas;
    int NIF, NIFComp;
    int NBas, NantFit, Npar=-1;
    int npix = 0;
-   double **Frequencies, ***Rates[5], ***Delays[5];
-   double *Tm = nullptr;
-   double *BasWgt;
-   int *doIF, *antFit; 
+// Frequencies[i] is a length-Nchan[i] tensor (ragged across IFs).
+   std::vector<xt::xtensor<double,1>> Frequencies;
+// Rates[pol][i][ant] and Delays[pol][i][ant] are length-NScan[i] tensors.
+   std::array<std::vector<std::vector<xt::xtensor<double,1>>>,5> Rates, Delays;
+   xt::xtensor<double,1> Tm;
+   xt::xtensor<double,1> BasWgt;
+   xt::xtensor<int,1> doIF, antFit; 
    
-   double *feedAngle;
-   double **DStokes; // = new double*[1];
+   double *feedAngle; // borrowed (NumPy-backed)
+   xt::xtensor<double,2> DStokes;
    double UVTAPER = 1.e9;
 
    double Chi2Old = 0.0;
    double TAvg = 1.0;
    double RelWeight = 1.0;
    double T0, T1, DT;
-   int **Ant1, **Ant2, **BasNum, **Scan;
-   double **Times, **ScanDur, **Weights, *CovMat, *IndVec, *SolVec;
-   double **UVGauss;
-   cplx64f **PA1, **PA2, **auxC00, **auxC01, **auxC10, **auxC11;
-   cplx64f **auxC00Flp, **auxC11Flp; // To better check Parangle Flip.
-   cplx64f ***RR, ***RL, ***LR, ***LL, **CrossSpec00, **CrossSpec11;
-   double *UVWeights;
+// Ant1[i], Ant2[i], Scan[i], Times[i], ScanDur[i], Weights[i], UVGauss[i],
+// PA1[i], PA2[i] are length-(NVis[i]+1) (or NDiffTimes, for ScanDur) tensors.
+   xt::xtensor<int,2> BasNum;
+   std::vector<xt::xtensor<int,1>> Ant1, Ant2, Scan;
+   std::vector<xt::xtensor<double,1>> Times, ScanDur, Weights;
+   xt::xtensor<double,1> CovMat, IndVec, SolVec;
+   std::vector<xt::xtensor<double,1>> UVGauss;
+   std::vector<xt::xtensor<cplx64f,1>> PA1, PA2;
+// auxC0*/auxC1* are length-(3*NCalAnt+1) tensors, one per baseline (size NBas).
+   std::vector<xt::xtensor<cplx64f,1>> auxC00, auxC01, auxC10, auxC11;
+   std::vector<xt::xtensor<cplx64f,1>> auxC00Flp, auxC11Flp; // To better check Parangle Flip.
+// RR[i][j], RL[i][j], LR[i][j], LL[i][j] are length-Nchan[i] tensors.
+   std::vector<std::vector<xt::xtensor<cplx64f,1>>> RR, RL, LR, LL;
+   std::vector<xt::xtensor<cplx64f,1>> CrossSpec00, CrossSpec11;
+   xt::xtensor<double,1> UVWeights;
    double SNR_CUTOFF;
    double Lambda;
    bool doCov;
@@ -250,9 +267,9 @@ PyMODINIT_FUNC init_PolGainSolve(void)
    bool AddParHand = true;
    bool StokesSolve;
 
-   cplx64f *G1,*G2, *G1nu, *G2nu; 
-   double *DirDer,*MBD1,*MBD2;
-   int *DerIdx,*AvVis;
+   xt::xtensor<cplx64f,1> G1,G2, G1nu, G2nu; 
+   xt::xtensor<double,1> DirDer,MBD1,MBD2;
+   xt::xtensor<int,1> DerIdx,AvVis;
 
 
    FILE *logFile = nullptr;
@@ -273,19 +290,19 @@ bool solveSystem(int Neq, double *HessianOrig, double *ResidualsOrig, double *So
 
     bool isSingular;
     int i,j,k;
-    double *buffer = new double[Neq+1];
+    xt::xtensor<double,1> buffer = xt_alloc<double>(Neq+1);
     double f;
 
-    double *Hessian = new double[Neq*Neq];
-    double *Residuals = new double[Neq];
-    memcpy((void *)Hessian, (void *)HessianOrig, sizeof(double)*Neq*Neq);
-    memcpy((void *)Residuals, (void *)ResidualsOrig, sizeof(double)*Neq);
+    xt::xtensor<double,1> Hessian = xt_alloc<double>(Neq*Neq);
+    xt::xtensor<double,1> Residuals = xt_alloc<double>(Neq);
+    memcpy((void *)Hessian.data(), (void *)HessianOrig, sizeof(double)*Neq*Neq);
+    memcpy((void *)Residuals.data(), (void *)ResidualsOrig, sizeof(double)*Neq);
 
     int Nmissing = 0;
-    int *missing = new int[Neq];
+    xt::xtensor<int,1> missing = xt_alloc<int>(Neq);
 
-    double *L = new double[Neq*Neq];
-    double *U = new double[Neq*Neq];
+    xt::xtensor<double,1> L = xt_alloc<double>(Neq*Neq);
+    xt::xtensor<double,1> U = xt_alloc<double>(Neq*Neq);
 
     for(i=0;i<Neq;i++){Solution[i]=0.0;};
     for(i=0;i<Neq*Neq;i++){L[i]=0.0;U[i]=0.0;};
@@ -392,9 +409,9 @@ bool solveSystem(int Neq, double *HessianOrig, double *ResidualsOrig, double *So
 
   int Nfree;
   Nfree = Neq - Nmissing;
-  double *invL = new double[Nfree*Nfree];
-  double *invU = new double[Nfree*Nfree];
-  double *Ufree = new double[Nfree*Nfree];
+  xt::xtensor<double,1> invL = xt_alloc<double>(Nfree*Nfree);
+  xt::xtensor<double,1> invU = xt_alloc<double>(Nfree*Nfree);
+  xt::xtensor<double,1> Ufree = xt_alloc<double>(Nfree*Nfree);
 
   int ifree, jfree;
   ifree=0; jfree=0;
@@ -427,7 +444,7 @@ bool solveSystem(int Neq, double *HessianOrig, double *ResidualsOrig, double *So
 
 
 // Now, invert the smaller (nonSingular) matrices L and U:
-  double *ident = new double[Nfree];
+  xt::xtensor<double,1> ident = xt_alloc<double>(Nfree);
 
   for(k=0;k<Nfree;k++){
     for(j=0;j<Nfree;j++){ident[j]=0.0;};
@@ -462,13 +479,6 @@ bool solveSystem(int Neq, double *HessianOrig, double *ResidualsOrig, double *So
   };
 
 
-
-  delete Hessian;
-  delete Residuals;
-  delete invU;
-  delete Ufree; 
-  delete invL;
-  delete ident;
 
   isSingular = Nmissing>0;
   return isSingular;
@@ -583,23 +593,22 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
 // Assign dummy sizes to all variables:  
   NIF = 0;
   Npar=0;
-  DStokes = new double*[1];
-  DStokes[0] = new double[4];
-  CovMat = new double[1];
-  IndVec = new double[1];
-  SolVec = new double[1];
-  G1 = new cplx64f[1];
-  G2 = new cplx64f[1];
-  G1nu = new cplx64f[1];
-  G2nu = new cplx64f[1];
-  DirDer = new double[1];
-  MBD1 = new double[1];
-  MBD2 = new double[1];
-  DerIdx = new int[1];
-  AvVis = new int[1];
-  Tm = new double[1];
-  doIF = new int[1];
-  antFit = new int[1];
+  DStokes = xt_alloc<double>(1,4);
+  CovMat = xt_alloc<double>(1);
+  IndVec = xt_alloc<double>(1);
+  SolVec = xt_alloc<double>(1);
+  G1 = xt_alloc<cplx64f>(1);
+  G2 = xt_alloc<cplx64f>(1);
+  G1nu = xt_alloc<cplx64f>(1);
+  G2nu = xt_alloc<cplx64f>(1);
+  DirDer = xt_alloc<double>(1);
+  MBD1 = xt_alloc<double>(1);
+  MBD2 = xt_alloc<double>(1);
+  DerIdx = xt_alloc<int>(1);
+  AvVis = xt_alloc<int>(1);
+  Tm = xt_alloc<double>(1);
+  doIF = xt_alloc<int>(1);
+  antFit = xt_alloc<int>(1);
 
   TAvg = (double) PyInt_AsLong(PyList_GetItem(solints,1));
   SolAlgor = (int) PyInt_AsLong(PyList_GetItem(solints,0));
@@ -634,16 +643,15 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
     };
   };
 
-  BasNum = new int*[MaxAnt];
-  LinBasNum = new int[MaxAnt*(MaxAnt-1)/2];
+  BasNum = xt_alloc<int>(MaxAnt,MaxAnt);
+  LinBasNum = xt_alloc<int>(MaxAnt*(MaxAnt-1)/2);
   NLinBas = 0;
   
   bool isCal1, isCal2; 
 
   for(i=0;i<MaxAnt;i++){
-    BasNum[i] = new int[MaxAnt];
     for(j=0;j<MaxAnt;j++){
-      BasNum[i][j] = -1;
+      BasNum(i,j) = -1;
     };
     for(j=i+1;j<MaxAnt;j++){
       isCal1=false; isCal2=false;
@@ -652,7 +660,7 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
         if(j==CalAnts[l]-1){isCal2=true;};
       };
       if (isCal1 && isCal2){
-        BasNum[i][j] = k;
+        BasNum(i,j) = k;
     //    printf("Baseline %i-%i will have assigned number %i\n",i+1,j+1,k);
         for(l=0;l<Nlin; l++){if(i==Lant[l]-1 || j==Lant[l]-1){LinBasNum[NLinBas]=k; NLinBas += 1; break; };};
         k += 1;
@@ -662,73 +670,72 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
   printf("There are %i baselines.\n",k);
 
   int BNum;
-  BasWgt = new double[k];
+  BasWgt = xt_alloc<double>(k);
   for(i=0;i<MaxAnt;i++){
     for(j=i+1;j<MaxAnt;j++){
-       BNum = BasNum[i][j];
+       BNum = BasNum(i,j);
        if (BNum>=0){ //printf("Weighting baselines %i\n",BNum); 
            BasWgt[BNum] = 1.0;} else {BasWgt[BNum]=0.0;};
        for(l=0;l<Ntwin;l++){
          if((Twins[0][l]==i+1 && Twins[1][l]==j+1)||(Twins[0][l]==j+1 && Twins[1][l]==i+1)){
-           printf("Flagging baseline %i\n",BNum); BasNum[i][j] = -1; BasWgt[BNum] = 0.0; break;
+           printf("Flagging baseline %i\n",BNum); BasNum(i,j) = -1; BasWgt[BNum] = 0.0; break;
          };
       };
     };
   };
 
-  auxC00 = new cplx64f*[k]; 
-  auxC01 = new cplx64f*[k]; 
-  auxC10 = new cplx64f*[k];
-  auxC11 = new cplx64f*[k];
-  auxC00Flp = new cplx64f*[k]; 
-  auxC11Flp = new cplx64f*[k];
-  UVWeights = new double[k];
+  auxC00.resize(k); 
+  auxC01.resize(k); 
+  auxC10.resize(k);
+  auxC11.resize(k);
+  auxC00Flp.resize(k); 
+  auxC11Flp.resize(k);
+  UVWeights = xt_alloc<double>(k);
 
   for(i=0;i<k;i++){
-    auxC00[i] = new cplx64f[3*NCalAnt+1];
-    auxC11[i] = new cplx64f[3*NCalAnt+1];
-    auxC01[i] = new cplx64f[3*NCalAnt+1];
-    auxC10[i] = new cplx64f[3*NCalAnt+1];
-    auxC00Flp[i] = new cplx64f[3*NCalAnt+1];
-    auxC11Flp[i] = new cplx64f[3*NCalAnt+1];
+    auxC00[i] = xt_alloc<cplx64f>(3*NCalAnt+1);
+    auxC11[i] = xt_alloc<cplx64f>(3*NCalAnt+1);
+    auxC01[i] = xt_alloc<cplx64f>(3*NCalAnt+1);
+    auxC10[i] = xt_alloc<cplx64f>(3*NCalAnt+1);
+    auxC00Flp[i] = xt_alloc<cplx64f>(3*NCalAnt+1);
+    auxC11Flp[i] = xt_alloc<cplx64f>(3*NCalAnt+1);
   };
   NBas = k;
-  CrossSpec00 = (cplx64f **) malloc(NBas*sizeof(cplx64f*));
-  CrossSpec11 = (cplx64f **) malloc(NBas*sizeof(cplx64f*));
+  CrossSpec00.resize(NBas);
+  CrossSpec11.resize(NBas);
   for(i=0;i<NBas;i++){
-    CrossSpec00[i] = (cplx64f *) malloc(MaxChan*sizeof(cplx64f));
-    CrossSpec11[i] = (cplx64f *) malloc(MaxChan*sizeof(cplx64f));
+    CrossSpec00[i] = xt_alloc<cplx64f>(MaxChan);
+    CrossSpec11[i] = xt_alloc<cplx64f>(MaxChan);
   };
 
   NIF = 0;
 
 
 // Set Memory:
-  NVis = (int *) malloc(MAXIF*sizeof(int));
-  IFNum = (int *) malloc(MAXIF*sizeof(int));
-  NCVis = (int *) malloc(MAXIF*sizeof(int));
-  NLVis = (int *) malloc(MAXIF*sizeof(int));
-  Nchan = (int *) malloc(MAXIF*sizeof(int));
-  Frequencies = (double **) malloc(MAXIF*sizeof(double*));
-  Ant1 = (int**) malloc(MAXIF*sizeof(int*));
-  Ant2 = (int**) malloc(MAXIF*sizeof(int*));
-  Scan = (int**) malloc(MAXIF*sizeof(int*));
-  NScan = (int*) malloc(MAXIF*sizeof(int));
-  Times = (double**) malloc(MAXIF*sizeof(double*));
-  Weights = (double**) malloc(MAXIF*sizeof(double*));
+  NVis.resize(MAXIF);
+  IFNum.resize(MAXIF);
+  NCVis.resize(MAXIF);
+  NLVis.resize(MAXIF);
+  Nchan.resize(MAXIF);
+  Frequencies.resize(MAXIF);
+  Ant1.resize(MAXIF);
+  Ant2.resize(MAXIF);
+  Scan.resize(MAXIF);
+  NScan.resize(MAXIF);
+  Times.resize(MAXIF);
+  Weights.resize(MAXIF);
 
-  ScanDur = (double**) malloc(MAXIF*sizeof(double*));
-  PA1 = (cplx64f**) malloc(MAXIF*sizeof(cplx64f*));
-  PA2 = (cplx64f**) malloc(MAXIF*sizeof(cplx64f*));
-  UVGauss = (double**) malloc(MAXIF*sizeof(double*));
-  RR = (cplx64f***) malloc(MAXIF*sizeof(cplx64f**));
-  LR = (cplx64f***) malloc(MAXIF*sizeof(cplx64f**));
-  RL = (cplx64f***) malloc(MAXIF*sizeof(cplx64f**));
-  LL = (cplx64f***) malloc(MAXIF*sizeof(cplx64f**));
- // Rates = (double ***) malloc(MAXIF*sizeof(double**));
+  ScanDur.resize(MAXIF);
+  PA1.resize(MAXIF);
+  PA2.resize(MAXIF);
+  UVGauss.resize(MAXIF);
+  RR.resize(MAXIF);
+  LR.resize(MAXIF);
+  RL.resize(MAXIF);
+  LL.resize(MAXIF);
   for(i=0;i<5;i++){
-    Rates[i] = (double ***) malloc(MAXIF*sizeof(double**));
-    Delays[i] = (double ***) malloc(MAXIF*sizeof(double**));
+    Rates[i].resize(MAXIF);
+    Delays[i].resize(MAXIF);
   };
 
 
@@ -744,30 +751,25 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
 
 static PyObject *FreeData(PyObject *self, PyObject *args) {
 
-  int i,j; 
-
   if (!logFile) logFile = fopen("PolConvert.GainSolve.log","a");
   sprintf(message,"Freeing Data NIF = %d\n", NIF);
   fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
 
 
-  for(i=0;i<NIF;i++){
-    for(j=0;j<NVis[i]+1;j++){
-      free(RR[i][j]);free(RL[i][j]);
-      free(LR[i][j]);free(LL[i][j]);
-    };
-    free(Ant1[i]);free(Ant2[i]);free(Scan[i]);free(Times[i]);
-    free(PA1[i]);free(PA2[i]);free(RR[i]);free(RL[i]);free(UVGauss[i]);
-    free(LR[i]);free(LL[i]);free(ScanDur[i]);free(Weights[i]);
-    delete Frequencies[i];
-  };
-
-  delete(UVWeights);
+// RR/RL/LR/LL/Ant1/Ant2/Scan/Times/PA1/PA2/UVGauss/ScanDur/Weights/
+// Frequencies/NScan/Nchan/NVis/NCVis/NLVis/IFNum/UVWeights are all
+// xtensor/std::vector-managed now, so they free themselves; nothing to do
+// per-IF. We still reset the top-level containers so a subsequent
+// PolGainSolve() call starts from a clean, empty state (matching the
+// original semantics of freeing and later re-mallocing from scratch).
 
   if(NIF>0){
-    free(NScan);free(Nchan);free(NVis);
-    free(NCVis);free(NLVis);free(IFNum);
-    free(Frequencies); free(Scan);
+    NScan.clear(); Nchan.clear(); NVis.clear();
+    NCVis.clear(); NLVis.clear(); IFNum.clear();
+    Frequencies.clear(); Scan.clear();
+    Ant1.clear(); Ant2.clear(); Times.clear();
+    PA1.clear(); PA2.clear(); RR.clear(); RL.clear(); UVGauss.clear();
+    LR.clear(); LL.clear(); ScanDur.clear(); Weights.clear();
     NIF = -1;
     PyObject *ret = Py_BuildValue("i",0);
     return ret;
@@ -822,55 +824,35 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
   NIF += 1;
 
 //////////
-// Set memory for new IF:
+// Set memory for new IF (std::vector containers grow themselves and
+// preserve existing entries, same semantics as the old realloc() calls):
   if (NIF > MAXIF){
-    fprintf(logFile,"(realloc) %d > %d\n", NIF, MAXIF); fflush(logFile);
+    fprintf(logFile,"(growing) %d > %d\n", NIF, MAXIF); fflush(logFile);
     MAXIF *= 2;
-    Nchan = (int*) realloc(Nchan,MAXIF*sizeof(int));
-    Frequencies = (double**) realloc(Frequencies,MAXIF*sizeof(double*));
-    NVis = (int*) realloc(NVis,MAXIF*sizeof(int));
-    NCVis = (int*) realloc(NCVis,MAXIF*sizeof(int));
-    NLVis = (int*) realloc(NLVis,MAXIF*sizeof(int));
-    IFNum = (int*) realloc(IFNum,MAXIF*sizeof(int));
-    if(!Nchan || !Frequencies || !NVis || !NCVis || !NLVis || !IFNum){
-      Nchan=nullptr; Frequencies=nullptr; NVis=nullptr; NCVis=nullptr; NLVis=nullptr; IFNum=nullptr;
-      fprintf(logFile,"(return -2)"); fflush(logFile);
-      PyObject *ret = Py_BuildValue("i",-2);
-      return ret;
-    };
+    Nchan.resize(MAXIF);
+    Frequencies.resize(MAXIF);
+    NVis.resize(MAXIF);
+    NCVis.resize(MAXIF);
+    NLVis.resize(MAXIF);
+    IFNum.resize(MAXIF);
 
-// Set memory for the visibilities and metadata:
-    Ant1 = (int**) realloc(Ant1,MAXIF*sizeof(int*));
-    Ant2 = (int**) realloc(Ant2,MAXIF*sizeof(int*));
-    Scan = (int**) realloc(Scan,MAXIF*sizeof(int*));
-    NScan = (int*) realloc(NScan,MAXIF*sizeof(int));
-    Times = (double**) realloc(Times,MAXIF*sizeof(double*));
-    Weights = (double**) realloc(Weights,MAXIF*sizeof(double*));
-    ScanDur = (double**) realloc(ScanDur,MAXIF*sizeof(double*));
-    PA1 = (cplx64f**) realloc(PA1,MAXIF*sizeof(cplx64f*));
-    PA2 = (cplx64f**) realloc(PA2,MAXIF*sizeof(cplx64f*));
-    UVGauss = (double**) realloc(UVGauss,MAXIF*sizeof(double*));
-    RR = (cplx64f***) realloc(RR,MAXIF*sizeof(cplx64f**));
-    LR = (cplx64f***) realloc(LR,MAXIF*sizeof(cplx64f**));
-    RL = (cplx64f***) realloc(RL,MAXIF*sizeof(cplx64f**));
-    LL = (cplx64f***) realloc(LL,MAXIF*sizeof(cplx64f**));
-   // Rates = (double ***) realloc(Rates,MAXIF*sizeof(double**));
+    Ant1.resize(MAXIF);
+    Ant2.resize(MAXIF);
+    Scan.resize(MAXIF);
+    NScan.resize(MAXIF);
+    Times.resize(MAXIF);
+    Weights.resize(MAXIF);
+    ScanDur.resize(MAXIF);
+    PA1.resize(MAXIF);
+    PA2.resize(MAXIF);
+    UVGauss.resize(MAXIF);
+    RR.resize(MAXIF);
+    LR.resize(MAXIF);
+    RL.resize(MAXIF);
+    LL.resize(MAXIF);
     for(i=0;i<5;i++){
-      Delays[i] = (double ***) realloc(Delays[i],MAXIF*sizeof(double**));
-      Rates[i] = (double ***) realloc(Rates[i],MAXIF*sizeof(double**));
-    };
-    if(!Ant1 || !Ant2 || !Times || !Weights || !PA1 || !PA2 || !RR || !LR || !RL || !LL){
-      Ant1=nullptr; Ant2=nullptr; Times=nullptr; PA1=nullptr; PA2=nullptr; UVGauss=nullptr;
-      RR=nullptr; LR=nullptr; RL=nullptr; LL=nullptr; ScanDur=nullptr; Weights=nullptr;
-      fprintf(logFile,"(return -3)"); fflush(logFile);
-      PyObject *ret = Py_BuildValue("i",-3);
-      return ret;
-    };
-    if(!Rates[0] || !Delays[0] || !Delays[1] || !Delays[2] || !Delays[3]){
-      for(i=0;i<5;i++){Rates[i] = nullptr; Delays[i]=nullptr;};
-      fprintf(logFile,"(return -4)"); fflush(logFile);
-      PyObject *ret = Py_BuildValue("i",-4);
-      return ret;
+      Delays[i].resize(MAXIF);
+      Rates[i].resize(MAXIF);
     };
   };
 //////////
@@ -888,14 +870,8 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
   if (Nchan[NIF-1] > MaxChan){
     MaxChan=Nchan[NIF-1];
     for (i=0; i< NBas; i++) {
-      CrossSpec00[i] = (cplx64f *) realloc(CrossSpec00[i],MaxChan*sizeof(cplx64f));
-      CrossSpec11[i] = (cplx64f *) realloc(CrossSpec11[i],MaxChan*sizeof(cplx64f));
-      if(!CrossSpec00[i] || !CrossSpec11[i]){
-        CrossSpec00[i]=nullptr; CrossSpec11[i]=nullptr;
-        fprintf(logFile,"(return -5)"); fflush(logFile);
-        PyObject *ret = Py_BuildValue("i",-5);
-        return ret;
-      };
+      xt_grow(CrossSpec00[i],MaxChan);
+      xt_grow(CrossSpec11[i],MaxChan);
     };
   };
 
@@ -908,8 +884,8 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
 
 
 // Get frequencies for this IF:
-  Frequencies[NIF-1] = new double[Nchan[NIF-1]];
-  CPfile.read(reinterpret_cast<char*>(Frequencies[NIF-1]), Nchan[NIF-1]*sizeof(double));
+  Frequencies[NIF-1] = xt_alloc<double>(Nchan[NIF-1]);
+  CPfile.read(reinterpret_cast<char*>(Frequencies[NIF-1].data()), Nchan[NIF-1]*sizeof(double));
 
   fprintf(logFile,"Freqs. %.8e  %.8e\n",
       Frequencies[NIF-1][0],Frequencies[NIF-1][Nchan[NIF-1]-1]);
@@ -920,7 +896,7 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
 // Number of integration times:
   int NDiffTimes = 0;
   int TimeBuff = 1000;
-  double *DiffTimes = (double *) malloc(TimeBuff*sizeof(double));
+  xt::xtensor<double,1> DiffTimes = xt_alloc<double>(TimeBuff);
   bool isTime;
 
 
@@ -983,23 +959,23 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
 
 // Set memory for the visibilities:
   j = NVis[NIF-1]+1;
-  Ant1[NIF-1] = (int*) malloc(j*sizeof(int));
-  Ant2[NIF-1] = (int*) malloc(j*sizeof(int));
-  Scan[NIF-1] = (int*) malloc(j*sizeof(int)); 
-  Times[NIF-1] = (double*) malloc(j*sizeof(double));
-  Weights[NIF-1] = (double*) malloc(j*sizeof(double));
-  PA1[NIF-1] = (cplx64f*) malloc(j*sizeof(cplx64f)); 
-  PA2[NIF-1] = (cplx64f*) malloc(j*sizeof(cplx64f)); 
-  UVGauss[NIF-1] = (double*) malloc(j*sizeof(double));
-  RR[NIF-1] = (cplx64f**) malloc(j*sizeof(cplx64f*)); 
-  LR[NIF-1] = (cplx64f**) malloc(j*sizeof(cplx64f*));
-  RL[NIF-1] = (cplx64f**) malloc(j*sizeof(cplx64f*)); 
-  LL[NIF-1] = (cplx64f**) malloc(j*sizeof(cplx64f*)); 
+  Ant1[NIF-1] = xt_alloc<int>(j);
+  Ant2[NIF-1] = xt_alloc<int>(j);
+  Scan[NIF-1] = xt_alloc<int>(j); 
+  Times[NIF-1] = xt_alloc<double>(j);
+  Weights[NIF-1] = xt_alloc<double>(j);
+  PA1[NIF-1] = xt_alloc<cplx64f>(j); 
+  PA2[NIF-1] = xt_alloc<cplx64f>(j); 
+  UVGauss[NIF-1] = xt_alloc<double>(j);
+  RR[NIF-1].resize(j); 
+  LR[NIF-1].resize(j);
+  RL[NIF-1].resize(j); 
+  LL[NIF-1].resize(j); 
   for (i=0;i<j;i++){
-    RR[NIF-1][i] = (cplx64f*) malloc(Nchan[NIF-1]*sizeof(cplx64f)); 
-    LR[NIF-1][i] = (cplx64f*) malloc(Nchan[NIF-1]*sizeof(cplx64f)); 
-    RL[NIF-1][i] = (cplx64f*) malloc(Nchan[NIF-1]*sizeof(cplx64f)); 
-    LL[NIF-1][i] = (cplx64f*) malloc(Nchan[NIF-1]*sizeof(cplx64f)); 
+    RR[NIF-1][i] = xt_alloc<cplx64f>(Nchan[NIF-1]); 
+    LR[NIF-1][i] = xt_alloc<cplx64f>(Nchan[NIF-1]); 
+    RL[NIF-1][i] = xt_alloc<cplx64f>(Nchan[NIF-1]); 
+    LL[NIF-1][i] = xt_alloc<cplx64f>(Nchan[NIF-1]); 
   };
 
 // Rewind files:
@@ -1052,7 +1028,7 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
        NDiffTimes += 1;
        if (NDiffTimes >= TimeBuff){
          TimeBuff += 1000;
-         DiffTimes = (double *) realloc(DiffTimes,TimeBuff*sizeof(double));
+         xt_grow(DiffTimes,TimeBuff);
        };
      };
      if (isFlipped){
@@ -1162,7 +1138,7 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
       NDiffTimes += 1;
       if (NDiffTimes >= TimeBuff){
         TimeBuff += 1000;
-        DiffTimes = (double *) realloc(DiffTimes,TimeBuff*sizeof(double));
+        xt_grow(DiffTimes,TimeBuff);
       };
     };
 
@@ -1247,7 +1223,7 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
   double ScanTimes[NDiffTimes];
   NScan[NIF-1] = 1;
   ScanTimes[0] = DiffTimes[0];
-  ScanDur[NIF-1] = (double*) malloc(NDiffTimes*sizeof(double));
+  ScanDur[NIF-1] = xt_alloc<double>(NDiffTimes);
 
 // By default, a difference of just 2 int. times (for all antennas) implies a scan change:
   if(MaxDT==0.0){MaxDT=2.*(DiffTimes[1]-DiffTimes[0]);};
@@ -1286,19 +1262,16 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
 //  };
 //};
 
-//  Rates[NIF-1] = (double **) malloc(NCalAnt*sizeof(double*));
   for(i=0;i<5;i++){
-    Delays[i][NIF-1] = (double **) malloc(NCalAnt*sizeof(double*));
-    Rates[i][NIF-1] = (double **) malloc(NCalAnt*sizeof(double*));
+    Delays[i][NIF-1].resize(NCalAnt);
+    Rates[i][NIF-1].resize(NCalAnt);
   };
   for(i=0;i<NCalAnt;i++){
-   // Rates[NIF-1][i] = (double *) malloc(NScan[NIF-1]*sizeof(double));
     for(k=0;k<5;k++){
-      Delays[k][NIF-1][i] = (double *) malloc(NScan[NIF-1]*sizeof(double));
-      Rates[k][NIF-1][i] = (double *) malloc(NScan[NIF-1]*sizeof(double));
+      Delays[k][NIF-1][i] = xt_alloc<double>(NScan[NIF-1]);
+      Rates[k][NIF-1][i] = xt_alloc<double>(NScan[NIF-1]);
     };
     for(k=0;k<NScan[NIF-1];k++){
-   //   Rates[NIF-1][i][k] = 0.0;
       for (j=0;j<5;j++){Delays[j][NIF-1][i][k] = 0.0; Rates[j][NIF-1][i][k] = 0.0;};
     };
   };
@@ -1311,9 +1284,6 @@ static PyObject *ReadData(PyObject *self, PyObject *args) {
     sprintf(message,"  scan %d time is %f; duration is %f\n", j, ScanTimes[j],ScanDur[NIF-1][j]);
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);  
   };
-
-  free(DiffTimes);
-
 
   PyObject *ret = Py_BuildValue("i",0);
   return ret;
@@ -1499,17 +1469,12 @@ static PyObject *SetFringeRates(PyObject *self, PyObject *args) {
 static PyObject *DoGFF(PyObject *self, PyObject *args) {
 
   int i,j,k,l,m, a1,a2, af1, af2, BNum,cScan;
-  double *T0 = new double[NBas];  
-  double *T1 = new double[NBas];
+  xt::xtensor<double,1> T0 = xt_alloc<double>(NBas);
+  xt::xtensor<double,1> T1 = xt_alloc<double>(NBas);
   bool isFirst = true;
   int applyRate;
   bool showMe, gotAnts;
-  cplx64f **aroundPeak = new cplx64f *[4]; 
-
-
-  for(i=0;i<4;i++){
-    aroundPeak[i] = new cplx64f[3];
-  };
+  cplx64f aroundPeak[4][3];
 
   PyObject *antList;
 
@@ -1533,25 +1498,22 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
 
 
   NantFit = (int) PyList_Size(antList);
-  delete[] antFit;
-  antFit = new int[NantFit];
+  antFit = xt_alloc<int>(NantFit);
 
   for (i=0; i<NantFit; i++){
     antFit[i] = (int) PyInt_AsLong(PyList_GetItem(antList,i));
   };
 
 // One element per polarization product:
-  double ***BLRates = new double **[4];
-  double ***BLDelays = new double **[4];
-  double ***BLWeights = new double **[4];
+  std::array<std::vector<xt::xtensor<double,1>>,4> BLRates, BLDelays, BLWeights;
   for (i=0;i<4;i++){
-    BLRates[i] = new double *[NIF];
-    BLDelays[i] = new double *[NIF];
-    BLWeights[i] = new double *[NIF];
+    BLRates[i].resize(NIF);
+    BLDelays[i].resize(NIF);
+    BLWeights[i].resize(NIF);
     for (j=0; j<NIF;j++){
-      BLRates[i][j] = new double[NBas];
-      BLDelays[i][j] = new double[NBas];
-      BLWeights[i][j] = new double[NBas];
+      BLRates[i][j] = xt_alloc<double>(NBas);
+      BLDelays[i][j] = xt_alloc<double>(NBas);
+      BLWeights[i][j] = xt_alloc<double>(NBas);
     };
   };
 
@@ -1563,8 +1525,8 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
   int MaxDim = TotDim;
   for (j=1; j<NIF; j++){if(NVis[j]*Nchan[j]>MaxDim){MaxDim=NVis[j]*Nchan[j];};};
 
-    fftw_complex **BufferVis = new fftw_complex *[4];
-    fftw_complex **out = new fftw_complex *[4];
+    std::array<fftw_complex*,4> BufferVis;
+    std::array<fftw_complex*,4> out;
     BufferVis[0] = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * MaxDim);
     BufferVis[1] = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * MaxDim);
     BufferVis[2] = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * MaxDim);
@@ -1574,7 +1536,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
     out[1] = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * MaxDim);
     out[2] = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * MaxDim);
     out[3] = (fftw_complex *) fftw_malloc(sizeof(fftw_complex) * MaxDim);
-    fftw_plan *pFT = new fftw_plan[4];
+    std::array<fftw_plan,4> pFT;
     pFT[0] = fftw_plan_dft_2d(prevNvis, Nchan[0], BufferVis[0], out[0], FFTW_FORWARD, FFTW_MEASURE);
     pFT[1] = fftw_plan_dft_2d(prevNvis, Nchan[0], BufferVis[1], out[1], FFTW_FORWARD, FFTW_MEASURE);
     pFT[2] = fftw_plan_dft_2d(prevNvis, Nchan[0], BufferVis[2], out[2], FFTW_FORWARD, FFTW_MEASURE);
@@ -1587,18 +1549,15 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
       BufferC[i] = reinterpret_cast<std::complex<double> *>(BufferVis[i]);
     };
 
-    int *inMatrix, NinMatrix;
+    xt::xtensor<int,1> inMatrix;
+    int NinMatrix;
     double Peak[4] = {0.,0.,0.,0.};
     double rmsFringe[4] = {0.,0.,0.,0.}; 
     double avgFringe[4] = {0.,0.,0.,0.}; 
     double AbsP;
     double Dnpix;
     int Chi, Chf, ti, tf;
-    int *nu[4], *time[4], row;
-    for(k=0;k<4;k++){
-      nu[k] = new int[3]; 
-      time[k]=new int[3];
-    };
+    int nu[4][3], time[4][3], row;
     sprintf(message,"Will fringe-fit %i baselines.\n",NBas); 
     fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);  
 
@@ -1608,7 +1567,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
     
              for (gotAnts = false, a1=0; a1<NCalAnt; a1++){
               for (a2=a1+1;a2<NCalAnt;a2++){
-                if(j == BasNum[CalAnts[a1]-1][CalAnts[a2]-1]){
+                if(j == BasNum(CalAnts[a1]-1,CalAnts[a2]-1)){
                   sprintf(message,"PROCESSING BASELINE %i (ANTS %i-%i)\n",j,CalAnts[a1]-1,CalAnts[a2]-1);
                   fprintf(logFile,"%s",message); // std::cout<<message; 
                   fflush(logFile);  
@@ -1625,7 +1584,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
     
     
       for (i=0; i<NIF; i++){  // IF loop
-        inMatrix = new int[NVis[i]];
+        inMatrix = xt_alloc<int>(NVis[i]);
         NinMatrix = 0;
         isFirst = true;
         showMe = false;
@@ -1640,7 +1599,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
         for (k=0; k<NVis[i]; k++){
           a1 = Ant1[i][k];
           a2 = Ant2[i][k];
-          BNum = BasNum[a1-1][a2-1];
+          BNum = BasNum(a1-1,a2-1);
           if (BNum==j && Scan[i][k]==cScan){
             inMatrix[NinMatrix]=k;
             NinMatrix += 1;
@@ -1906,9 +1865,6 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
 
 
 
-        delete[] inMatrix;
-
-
         };  // end IF loop
 ////////////////////
       };  // end baseline loop
@@ -1932,14 +1888,12 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
 
 
 // Setup memory:
-   // double *Hessian = new double[NantFit*NantFit];
-    double **HessianDel = new double*[4];
-    for(m=0;m<4;m++){HessianDel[m] = new double[NantFit*NantFit];};
-    double *RateResVec[4]; // = new double[NantFit];
-    double *DelResVec[4];
-    for(m=0;m<4;m++){DelResVec[m] = new double[NantFit];RateResVec[m] = new double[NantFit];};
-    delete[] CovMat;
-    CovMat = new double[NantFit*NantFit];
+    std::array<xt::xtensor<double,1>,4> HessianDel;
+    for(m=0;m<4;m++){HessianDel[m] = xt_alloc<double>(NantFit*NantFit);};
+    std::array<xt::xtensor<double,1>,4> RateResVec;
+    std::array<xt::xtensor<double,1>,4> DelResVec;
+    for(m=0;m<4;m++){DelResVec[m] = xt_alloc<double>(NantFit);RateResVec[m] = xt_alloc<double>(NantFit);};
+    CovMat = xt_alloc<double>(NantFit*NantFit);
     for (i=0;i<NantFit*NantFit;i++){
     //  Hessian[i] = 0.0;
       for(m=0;m<4;m++){HessianDel[m][i]=0.0;}
@@ -1960,7 +1914,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
    printf("For IF %i:\n",IFNum[i]);fflush(stdout);
    for (a1=0; a1<NCalAnt; a1++){
      for (a2=a1+1;a2<NCalAnt;a2++){
-        BNum = BasNum[CalAnts[a1]-1][CalAnts[a2]-1];
+        BNum = BasNum(CalAnts[a1]-1,CalAnts[a2]-1);
         for(j=0; j<Ntwin; j++) {
            if((Twins[0][j]==CalAnts[a1] && Twins[1][j]==CalAnts[a2])||
              (Twins[0][j]==CalAnts[a2] && Twins[1][j]==CalAnts[a1])){
@@ -1987,7 +1941,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
               if (CalAnts[a1]==antFit[j]){af1 = j;};
               if (CalAnts[a2]==antFit[j]){af2 = j;};
             };
-            BNum = BasNum[CalAnts[a1]-1][CalAnts[a2]-1];
+            BNum = BasNum(CalAnts[a1]-1,CalAnts[a2]-1);
 
             for(j=0;j<Ntwin;j++){
               if((Twins[0][j]==CalAnts[a1] && Twins[1][j]==CalAnts[a2])||
@@ -2032,7 +1986,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
 /////////////////////////////////
     } else {
 
-      BNum = BasNum[CalAnts[0]-1][CalAnts[1]-1];
+      BNum = BasNum(CalAnts[0]-1,CalAnts[1]-1);
 
       for (i=0; i<NIF; i++){
 
@@ -2087,21 +2041,18 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
     printf("\n");
 
 
-    double **SolRat = new double*[4];
-    double **SolDel = new double*[4];
-    double **SolErrRat = new double*[4];
-    double **SolErrDel = new double*[4];
+    std::array<xt::xtensor<double,1>,4> SolRat, SolDel, SolErrRat, SolErrDel;
     for (i=0; i<4; i++){
-      SolDel[i] = new double[NantFit]; SolRat[i] = new double[NantFit];
-      SolErrDel[i] = new double[NantFit]; SolErrRat[i] = new double[NantFit];
+      SolDel[i] = xt_alloc<double>(NantFit); SolRat[i] = xt_alloc<double>(NantFit);
+      SolErrDel[i] = xt_alloc<double>(NantFit); SolErrRat[i] = xt_alloc<double>(NantFit);
     };
 
 
 
     isSingular = false;
       for(i=0;i<4;i++){
-          isSingular = solveSystem(NantFit,HessianDel[i],DelResVec[i],SolDel[i], SolErrDel[i]);
-          isSingular = solveSystem(NantFit,HessianDel[i],RateResVec[i],SolRat[i],SolErrRat[i]);
+          isSingular = solveSystem(NantFit,HessianDel[i].data(),DelResVec[i].data(),SolDel[i].data(), SolErrDel[i].data());
+          isSingular = solveSystem(NantFit,HessianDel[i].data(),RateResVec[i].data(),SolRat[i].data(),SolErrRat[i].data());
       };
 
 
@@ -2176,36 +2127,14 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
   };
 
 
-// Release memory:
+// Release memory (T0/T1/BLRates/BLDelays/BLWeights/HessianDel/DelResVec/
+// RateResVec/SolRat/SolDel/SolErrRat/SolErrDel/aroundPeak/nu/time/inMatrix
+// are now owned by xtensor/std::vector/std::array containers and free
+// themselves; only the raw FFTW buffers still need explicit release):
 
   for(m=0;m<4;m++){
     fftw_free(BufferVis[m]); fftw_free(out[m]);
   };
-
-  delete[] T0;
-  delete[] T1;
-
-  for (m=0;m<4;m++){
-    for (i=0; i<NIF;i++){
-      delete[] BLRates[m][i];
-      delete[] BLDelays[m][i];
-      delete[] BLWeights[m][i];
-    };
-    delete[] BLRates[m];
-    delete[] BLDelays[m];
-    delete[] BLWeights[m];
-    delete[] HessianDel[m];
-    delete[] DelResVec[m];
-    delete[] RateResVec[m];
-    delete[] aroundPeak[m];
-  };
-  delete[] BLRates;
-  delete[] BLDelays;
-  delete[] BLWeights;
-  delete[] aroundPeak;
-//  delete[] Hessian;
-  delete[] HessianDel;
-//  delete[] RateResVec;
 
 
 // Return success:
@@ -2251,7 +2180,7 @@ static PyObject *DoGFF(PyObject *self, PyObject *args) {
 
 static PyObject *SetFit(PyObject *self, PyObject *args) {
 
-  int i, j, k, oldNpar = Npar;
+  int i, j, k;
   bool foundit;
 
   if (!logFile) logFile = fopen("PolConvert.GainSolve.log","a");
@@ -2270,31 +2199,17 @@ static PyObject *SetFit(PyObject *self, PyObject *args) {
   };
 
 
-  if (Tm){
+  if (Tm.size()>0){
    // sprintf(message,"Clearing previous allocation objects\n");
    // fprintf(logFile,"%s",message); std::cout<<message; fflush(logFile);
-    delete[] Tm;
-    delete[] doIF;
-    delete[] antFit;
-    delete[] CovMat;
-    delete[] IndVec;
-    delete[] SolVec;
-    delete[] G1;
-    delete[] G2;
-    delete[] G1nu;
-    delete[] G2nu;
-    for(i=0;i<oldNpar+1;i++){delete[] DStokes[i];};
-    delete[] DStokes;
-    delete[] DirDer;
-    delete[] MBD1;
-    delete[] MBD2;
-    delete[] DerIdx;
-    delete[] AvVis;
+// Tm/doIF/antFit/CovMat/IndVec/SolVec/G1/G2/G1nu/G2nu/DStokes/DirDer/MBD1/
+// MBD2/DerIdx/AvVis are xtensor-managed now; assigning new values below
+// frees the previous allocation automatically, so no manual delete needed.
     sprintf(message,"Clearing previous allocation objects\n");
     fprintf(logFile,"%s",message); // std::cout<<message; fflush(logFile);
   };
 
-  Tm = new double[NBas];
+  Tm = xt_alloc<double>(NBas);
 
   T0 = Times[0][0];
   T1 = Times[0][NVis[0]-1];
@@ -2303,10 +2218,10 @@ static PyObject *SetFit(PyObject *self, PyObject *args) {
   feedAngle = (double *)PyArray_DATA((PyArrayObject *)feedPy);
 
   NIFComp = (int) PyList_Size(IFlist);
-  doIF = new int[NIFComp];
+  doIF = xt_alloc<int>(NIFComp);
 
   NantFit = (int) PyList_Size(antList);
-  antFit = new int[NantFit];
+  antFit = xt_alloc<int>(NantFit);
 
 
 // Temporary code for testing: reset the solution algorithm, depending on whether
@@ -2333,9 +2248,9 @@ static PyObject *SetFit(PyObject *self, PyObject *args) {
     };
   };
 
-  CovMat = new double[Npar*Npar];
-  IndVec = new double[Npar];
-  SolVec = new double[Npar];
+  CovMat = xt_alloc<double>(Npar*Npar);
+  IndVec = xt_alloc<double>(Npar);
+  SolVec = xt_alloc<double>(Npar);
 //  m = gsl_matrix_view_array (CovMat, Npar, Npar);
 //  v = gsl_vector_view_array (IndVec, Npar);
 //  x = gsl_vector_view_array (SolVec, Npar);
@@ -2349,19 +2264,18 @@ static PyObject *SetFit(PyObject *self, PyObject *args) {
 
 //////////////////////
 
-  G1 = new cplx64f[Npar+1];
-  G2 = new cplx64f[Npar+1]; 
-  DStokes = new double*[Npar+1];
-  DirDer = new double[Npar];
+  G1 = xt_alloc<cplx64f>(Npar+1);
+  G2 = xt_alloc<cplx64f>(Npar+1); 
+  DStokes = xt_alloc<double>(Npar+1,4);
+  DirDer = xt_alloc<double>(Npar);
 
-  MBD1 = new double[Npar+1];
-  MBD2 = new double[Npar+1];
-  G1nu = new cplx64f[Npar+1];
-  G2nu = new cplx64f[Npar+1];
-  for(i=0;i<Npar+1;i++){DStokes[i]=new double[4];};
+  MBD1 = xt_alloc<double>(Npar+1);
+  MBD2 = xt_alloc<double>(Npar+1);
+  G1nu = xt_alloc<cplx64f>(Npar+1);
+  G2nu = xt_alloc<cplx64f>(Npar+1);
 
-  DerIdx = new int[Npar+1];
-  AvVis = new int[NBas];
+  DerIdx = xt_alloc<int>(Npar+1);
+  AvVis = xt_alloc<int>(NBas);
 
   ret = Py_BuildValue("i",0);
   return ret;
@@ -2510,7 +2424,7 @@ static PyObject *GetChi2(PyObject *self, PyObject *args) {
   int BNum;
   double Chi2 = 0.0;
   double auxD1, auxD2;
-  double *chanFreq; 
+  xt::xtensor<double,1> chanFreq; 
 
 //  for(l=0;l<Npar+1;l++){
 //    for(i=0;i<4;i++){DStokes[l][i] = Stokes[i];};
@@ -2523,7 +2437,7 @@ static PyObject *GetChi2(PyObject *self, PyObject *args) {
 /// Loop over IFs:
   for (i=0; i<NIFComp; i++){
 
-    chanFreq = new double[Nchan[doIF[i]]];
+    chanFreq = xt_alloc<double>(Nchan[doIF[i]]);
     for (j=0;j<Nchan[doIF[i]];j++){
       chanFreq[j] = (double) (j-Nchan[doIF[i]]/2);
     };
@@ -2580,7 +2494,7 @@ static PyObject *GetChi2(PyObject *self, PyObject *args) {
 // (Notice that we can also solve for R/L gains 
 // for the circular antennas)
 
-    BNum = BasNum[a1-1][a2-1];
+    BNum = BasNum(a1-1,a2-1);
     for(j=0; j<Nlin; j++) {
       if (a1==Lant[j]){is1 = true;};
       if (a2==Lant[j]){is2 = true;};
@@ -3058,7 +2972,6 @@ static PyObject *GetChi2(PyObject *self, PyObject *args) {
 
   };  // Comes from loop over visibilities
 
-  delete[] chanFreq;
 
 };  // Comes from loop over NIFComp
 

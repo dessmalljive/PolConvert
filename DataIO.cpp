@@ -53,7 +53,7 @@ long DataIO::getMixedNvis() {return NLinVis;};  // NUMBER OF MIXED-POLARIZATION 
 
 // GET FREQUENCIES OF CURRENT IF:
 void DataIO::getFrequencies(double* output){
-memcpy(output,Freqvals[currFreq],Freqs[currFreq].Nchan*sizeof(double));
+memcpy(output,Freqvals[currFreq].data(),Freqs[currFreq].Nchan*sizeof(double));
 };
 
 
