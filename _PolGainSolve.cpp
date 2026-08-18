@@ -674,13 +674,17 @@ static PyObject *PolGainSolve(PyObject *self, PyObject *args){
   for(i=0;i<MaxAnt;i++){
     for(j=i+1;j<MaxAnt;j++){
        BNum = BasNum(i,j);
+// Baselines not formed by two calibration antennas have BNum = -1 and no
+// BasWgt entry at all, so only weight (or twin-flag) valid baselines.
+// (Writing BasWgt[-1] here used to corrupt the heap and crash at exit.)
        if (BNum>=0){ //printf("Weighting baselines %i\n",BNum); 
-           BasWgt[BNum] = 1.0;} else {BasWgt[BNum]=0.0;};
-       for(l=0;l<Ntwin;l++){
-         if((Twins[0][l]==i+1 && Twins[1][l]==j+1)||(Twins[0][l]==j+1 && Twins[1][l]==i+1)){
-           printf("Flagging baseline %i\n",BNum); BasNum(i,j) = -1; BasWgt[BNum] = 0.0; break;
-         };
-      };
+           BasWgt[BNum] = 1.0;
+           for(l=0;l<Ntwin;l++){
+             if((Twins[0][l]==i+1 && Twins[1][l]==j+1)||(Twins[0][l]==j+1 && Twins[1][l]==i+1)){
+               printf("Flagging baseline %i\n",BNum); BasNum(i,j) = -1; BasWgt[BNum] = 0.0; break;
+             };
+          };
+       };
     };
   };
 
