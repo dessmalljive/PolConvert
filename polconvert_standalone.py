@@ -3035,10 +3035,12 @@ def polconvert(
 
                                 printMsg(pmsg)
                                 pfile.write(pmsg)
+                                pfile.close()
 
                                 printMsg(
                                     "wrote FRINGE.PEAKS_IF%i-ANT%i.dat" % (pli, ant1)
                                 )
+                                pfile.close()
                             # end of if for this baseline to be plotted
                         # end of if len(fringe)>0
                         else:
