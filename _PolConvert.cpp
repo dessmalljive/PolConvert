@@ -219,7 +219,7 @@ static PyObject *PolConvert(PyObject *self, PyObject *args)
   PyObject *ikind = nullptr, *dterms = nullptr;
   PyObject *IDI, *antnum, *tempPy, *ret; 
   PyObject *allphants = nullptr, *nphtimes = nullptr;
-  PyObject *phanttimes, *SWAP;
+  PyObject *phanttimes = nullptr, *SWAP;
   PyObject *doIF, *metadata,  *logNameObj;
   PyObject *asdmTimes, *plIF, *isLinearObj, *XYaddObj, *ALMAstuff; 
   PyObject *soucoordObj; 
@@ -1350,15 +1350,15 @@ if(PCMode){
 ////////////
                //indent level within getting average loop
                if(verbose && j<32){
-                 printf("gainRatio (%d): %.3e %.3e\n",j,
+                 printf("gainRatio (%ld): %.3e %.3e\n",j,
                       gainRatio[j].real(), gainRatio[j].imag());
-                 printf("Ktot00(%d): %.3e %.3e\n",j,
+                 printf("Ktot00(%ld): %.3e %.3e\n",j,
                       Ktotal[currAntIdx][0][0][j].real(), Ktotal[currAntIdx][0][0][j].imag());
-                 printf("Ktot01(%d): %.3e %.3e\n",j,
+                 printf("Ktot01(%ld): %.3e %.3e\n",j,
                       Ktotal[currAntIdx][0][1][j].real(), Ktotal[currAntIdx][0][1][j].imag());
-                 printf("Ktot10(%d): %.3e %.3e\n",j,
+                 printf("Ktot10(%ld): %.3e %.3e\n",j,
                       Ktotal[currAntIdx][1][0][j].real(), Ktotal[currAntIdx][1][0][j].imag());
-                 printf("Ktot11(%d): %.3e %.3e\n",j,
+                 printf("Ktot11(%ld): %.3e %.3e\n",j,
                       Ktotal[currAntIdx][1][1][j].real(), Ktotal[currAntIdx][1][1][j].imag()); 
                  if (allflagged) {printf("All flagged\n"); }
                  else {printf("Not flagged\n"); };

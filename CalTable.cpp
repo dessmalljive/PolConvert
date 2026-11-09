@@ -594,7 +594,7 @@ bool CalTable::setInterpolationTime(double itime) {
   long ti0 = 0;
   long ti1 = 0; 
   double Kt = 0.0;
-  long Nts; 
+  long Nts = 0;
   double auxD, auxD2;
   int iant;
 
@@ -646,8 +646,14 @@ bool CalTable::setInterpolationTime(double itime) {
 
  };
 
+   // Summary for the last antenna processed. All values are taken from that
+   // same antenna so every index stays within its own arrays (gainChanged
+   // implies the loop ran, hence Nants >= 1).
    if (Verbose && Nchan>1 && gainChanged){
-     sprintf(message,"\nNtimes: %li | %li  %li  %.3f | %.3e -- %.3e \n",Nts,pret0[1], pret1[1], preKt[1],itime,Time[0][ti0]);
+     iant = Nants-1;
+     sprintf(message,"\nAnt %i Ntimes: %li | %li  %li  %.3f | %.3e -- %.3e \n",
+             iant, Ntimes[iant], pret0[iant], pret1[iant], preKt[iant],
+             itime, Time[iant][pret0[iant]]);
      fprintf(logFile,"%s",message);
      printf("%s",message);fflush(stdout);
    };

@@ -3,7 +3,7 @@
 polarization instead of circular one. This is a wrapper for the PolConvert-standalone program that
 reads the required parameters from an input file and is meant to be used with EVN data.
 
-Version: 2.2
+Version: 2.3 (6 Nov 2026)
 Date: March 2023
 Written by Benito Marcote (marcote@jive.eu)
 """
@@ -19,7 +19,7 @@ from concurrent import futures
 from collections import defaultdict
 import numpy as np
 from astropy.io import fits
-from evn_support import find_idi_with_time as find_idi
+from PolConvert.EVN import find_idi_with_time as find_idi
 # tomli was introduced in the standard library as tomllib in Python 3.11
 try:
     import tomllib
@@ -27,12 +27,13 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 
-__version__ = '2.2'
+__version__ = '2.3'
 
 
 def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exclude_baselines, do_ifs,
-         time_range, chan_avg=1, time_avg=20, solve_weight=0.0, solve_amp=True, to_compute=True, to_apply=True,
-         suffix='.PCONVERT', logdir='polconvert_logs', **kwargs):
+         time_range, out_gainfile: str, gainfiles: list[str], chan_avg=1, time_avg=20, solve_weight=0.0,
+         solve_amp=True, to_compute=True, to_apply=True, suffix='.PCONVERT', logdir='polconvert_logs',
+         useDelays: bool = False, useRates: bool = False, **kwargs):
     """Runs PolConvert on the given project.
     Inputs:
         - ref_idi : str
@@ -69,6 +70,14 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
             If empty, it will overwrite the original files (not recommended).
         - logdir : str  [default = 'polconvert_logs']
             Specifies the folder that will be created to keep the log files from this run.
+        - out_gainfile : str
+            The filename that will be writen containing the computed gains for the telescopes (if to_compute is True).
+        - gainfiles : list[str]
+            The file names that will be used to apply the conversion (if to_apply is True).
+        - useDelays : bool [default = False]
+            Fit the delays before comuting the solution. False by default to keep it consistent with prior versions.
+        - useRates: bool [default = False]
+            Fit the rates before comuting the solution. False by default to keep it consistent with prior versions.
         - **kwargs
             Parameters that PolConvert() accepts. Check its help.
     """
@@ -84,7 +93,7 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
 
     # Files created by PolConvert, always in CWD
     _TEMP_FILES = ('CONVERSION.MATRIX', 'FRINGE.PEAKS', 'FRINGE.PLOTS', 'POLCONVERT.FRINGE', 'PolConvert.log',
-                   'PolConvert.XYGains.dat', 'PolGainSolve.log', 'PolConvert_standalone.last',
+                   'PolConvert.XYGains.dat', 'PolGainSolve.log', 'PolConvert_standalone.last', 'PolConvert.GainSolve.log',
                    f"Cross-Gains_{args['inputs']['ref_idi'].split('.')[0]}.png")
     # If exists, remove all created output files (but the IDIs) from prior runs
     if args['options']['to_compute']:
@@ -114,9 +123,9 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
                                      excludeAnts=exclude_antennas,
                                      excludeBaselines=exclude_baselines, doIF=do_ifs, plotIF=do_ifs, doTest=True,
                                      saveArgs=True, plotRange=time_range, Range=time_range, solveAmp=solve_amp,
-                                     XYadd=XYadd, XYratio=XYratio, **kwargs)
+                                     XYadd=XYadd, XYratio=XYratio, useDelays=useDelays, useRates=useRates, **kwargs)
 
-            with open(path / 'polconvert.gains', 'wb') as gain_file:
+            with open(path / out_gainfile, 'wb') as gain_file:
                 pk.dump(gains, gain_file)
 
             for lant in linear_antennas:
@@ -128,7 +137,8 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
                                  plotAnt=ref_antenna, doSolve=-1, solint=[chan_avg, time_avg],
                                  excludeAnts=exclude_antennas, excludeBaselines=exclude_baselines,
                                  doIF=do_ifs, plotIF=do_ifs, doTest=True, plotRange=time_range,
-                                 Range=time_range, solveAmp=solve_amp, XYadd=XYadd, XYratio=XYratio, **kwargs)
+                                 Range=time_range, solveAmp=solve_amp, XYadd=XYadd, XYratio=XYratio,
+                                 useDelays=useDelays, useRates=useRates, **kwargs)
         finally:
             # Move all created output files (but the IDIs) into the expected log folder
             for a_path in _TEMP_FILES:
@@ -145,11 +155,12 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
             # The solutions must have been recorded from a previous run in the file
             # Otherwise they should already be available in the XYadd/XYratio dicts.
             # with open(path / 'PolConvert.XYGains.dat', 'rb') as gain_file:
-            with open(path / 'polconvert.gains', 'rb') as gain_file:
-                gains = pk.load(gain_file)
-                for lant in linear_antennas:
-                    XYadd[lant] = gains['XYadd'][lant]
-                    XYratio[lant] = gains['XYratio'][lant]
+            for gain_file_path in gainfiles:
+                with open(path / 'polconvert.gains', 'rb') as gain_file:
+                    gains = pk.load(gain_file)
+                    for lant in linear_antennas:
+                        XYadd[lant] = gains['XYadd'][lant]
+                        XYratio[lant] = gains['XYratio'][lant]
 
         for an_idi in idi_files:
             an_idi_path = Path(an_idi + suffix)
@@ -178,55 +189,95 @@ def main(ref_idi, idi_files, linear_antennas, ref_antenna, exclude_antennas, exc
                         else:
                             shutil.rmtree(a_file)
 
-    # Once everything has run, summarise the fringe SNR per IF obtained during the conversion.
+    # Once everything has run, summarise the normalized fringe peaks per IF obtained during the conversion.
     try:
-        print_fringe_snr_table(logdir)
+        print_fringe_peaks_table(logdir)
     except Exception as summary_error:
-        print(f"Warning: could not build the fringe-SNR summary table ({summary_error}).")
+        print(f"Warning: could not build the fringe-peak summary table ({summary_error}).")
 
 
 # Polarizations reported in the FRINGE.PEAKS files, in the order they should appear in the table.
 _FRINGE_POLS = ('RR', 'LL', 'RL', 'LR')
 # Relevant lines look like:   RR: 9.48e-01 ; SNR: 375.3
-_FRINGE_SNR_RE = re.compile(r'^\s*(RR|LL|RL|LR)\s*:.*?SNR\s*:\s*([-+0-9.eE]+)', re.IGNORECASE)
+# The first value is the normalized fringe-peak amplitude (relative to the strongest of the four
+# products), which is what tells whether the conversion worked. The SNR after it is not used: it does
+# not scale with the peak amplitude, so it says little about how much power is left in the cross hands.
+_FRINGE_PEAK_RE = re.compile(r'^\s*(RR|LL|RL|LR)\s*:\s*([-+0-9.eE]+)\s*;', re.IGNORECASE)
 # File names look like:  FRINGE.PEAKS_IF1_SCAN_0_EF-JB.dat  ->  (IF number, scan/baseline label)
 _FRINGE_FILE_RE = re.compile(r'FRINGE\.PEAKS_IF(\d+)_(.+)\.dat$')
+# An IF is taken as well converted (green in the table) when (RR + LL) / (RL + LR) of its normalized
+# fringe peaks reaches this value. It is the threshold evn_postprocess uses to accept a solution
+# (process._POLCONVERT_MIN_RATIO): keep both equal so that the colours match its decision.
+GOOD_PEAK_RATIO = 4.0
 
 
-def _read_fringe_peaks(datfile):
-    """Returns a dict {pol: snr} with the fringe SNR values read from a single FRINGE.PEAKS_*.dat file."""
-    snr = {}
-    with open(datfile, 'r', encoding='utf-8', errors='replace') as peaks:
-        for line in peaks:
-            match = _FRINGE_SNR_RE.match(line)
+def read_fringe_peaks(datfile):
+    """Returns a dict {pol: peak} with the normalized fringe-peak amplitudes (the first value on each
+    RR/LL/RL/LR line, between 0 and 1) read from a single FRINGE.PEAKS_*.dat file."""
+    peaks = {}
+    with open(datfile, 'r', encoding='utf-8', errors='replace') as peaks_file:
+        for line in peaks_file:
+            match = _FRINGE_PEAK_RE.match(line)
             if match is not None:
                 try:
-                    snr[match.group(1).upper()] = float(match.group(2))
+                    peaks[match.group(1).upper()] = float(match.group(2))
                 except ValueError:
                     pass
-    return snr
+    return peaks
 
 
-def _fringe_snr_color(snr):
+def read_fringe_peaks_dir(logdir='polconvert_logs'):
+    """Returns {scan/baseline label: {IF number: {pol: peak}}} with the normalized fringe peaks of
+    every FRINGE.PEAKS_IF*_SCAN_*.dat file under {logdir}/FRINGE.PEAKS/ (empty if there is none).
+    There is one label per baseline between a linear antenna and the reference antenna."""
+    groups = defaultdict(dict)
+    for datfile in sorted((Path(logdir) / 'FRINGE.PEAKS').glob('FRINGE.PEAKS_IF*_SCAN_*.dat')):
+        match = _FRINGE_FILE_RE.search(datfile.name)
+        if match is not None:
+            groups[match.group(2)][int(match.group(1))] = read_fringe_peaks(datfile)
+    return dict(groups)
+
+
+def fringe_peak_ratio(peaks):
+    """Returns (RR + LL) / (RL + LR) from the normalized fringe peaks of one IF ({pol: peak}), inf if
+    the cross hands are zero, or None if any of the four products is missing.
+
+    A good conversion concentrates the power in the parallel hands (ratio well above 1); a failed one
+    leaves the four products comparable (ratio ~1) or the cross hands dominant (ratio < 1)."""
+    if any(pol not in peaks for pol in _FRINGE_POLS):
+        return None
+    cross = peaks['RL'] + peaks['LR']
+    return (peaks['RR'] + peaks['LL']) / cross if cross > 0 else float('inf')
+
+
+def _fringe_peak_color(peaks):
     """Returns the rich colour for a given IF depending on the ratio between the parallel-hand
-    (RR + LL) and cross-hand (RL + LR) fringe SNRs: green if a conversion clearly succeeded,
-    orange if it is marginal, and red if it likely failed."""
-    parallel = snr.get('RR', 0.0) + snr.get('LL', 0.0)
-    cross = snr.get('RL', 0.0) + snr.get('LR', 0.0)
-    if parallel > 2 * cross:
+    (RR + LL) and cross-hand (RL + LR) normalized fringe peaks: green if the conversion clearly
+    succeeded (ratio >= GOOD_PEAK_RATIO), orange if it is marginal (ratio > 1), and red if it likely
+    failed (or the file is incomplete)."""
+    ratio = fringe_peak_ratio(peaks)
+    if ratio is None:
+        return 'red'
+    if ratio >= GOOD_PEAK_RATIO:
         return 'green'
-    if parallel > cross:
+    if ratio > 1:
         return 'dark_orange'
     return 'red'
 
 
-def print_fringe_snr_table(logdir='polconvert_logs'):
+def _fringe_peak_cell(peak):
+    """The table cell for one normalized fringe peak: x100 as an integer (100 = strongest product)."""
+    return '-' if peak is None else str(int(round(100 * peak)))
+
+
+def print_fringe_peaks_table(logdir='polconvert_logs'):
     """Reads the FRINGE.PEAKS files written by PolConvert while computing the solutions and prints
-    (using rich) a table summarising the fringe SNR of each polarization (RR, LL, RL, LR) per IF.
+    (using rich) a table with the normalized fringe peak of each polarization (RR, LL, RL, LR) per IF,
+    multiplied by 100 and shown as integers (the strongest of the four products is 100).
 
     One table is printed per scan/baseline found under {logdir}/FRINGE.PEAKS/, with the different IFs
-    as columns. For each IF the values are shown in green if (RR + LL) > 2*(RL + LR), orange if
-    (RR + LL) > (RL + LR), and red otherwise.
+    as columns. For each IF the values are shown in green if (RR + LL) >= GOOD_PEAK_RATIO * (RL + LR),
+    orange if (RR + LL) > (RL + LR), and red otherwise.
 
     Inputs:
         - logdir : str  [default = 'polconvert_logs']
@@ -238,34 +289,29 @@ def print_fringe_snr_table(logdir='polconvert_logs'):
         from rich import get_console
         from rich.table import Table
     except ImportError:
-        print("Note: install the 'rich' package to get the fringe-SNR summary table.")
+        print("Note: install the 'rich' package to get the fringe-peak summary table.")
         return
 
-    peaks_dir = Path(logdir) / 'FRINGE.PEAKS'
-    # Group the SNRs by scan/baseline label; within each group index them by IF number.
-    groups = defaultdict(dict)
-    for datfile in sorted(peaks_dir.glob('FRINGE.PEAKS_IF*_SCAN_*.dat')):
-        match = _FRINGE_FILE_RE.search(datfile.name)
-        if match is not None:
-            groups[match.group(2)][int(match.group(1))] = _read_fringe_peaks(datfile)
-
+    groups = read_fringe_peaks_dir(logdir)
     if not groups:
-        rprint(f"[yellow]No FRINGE.PEAKS files found under {peaks_dir} to summarise.[/yellow]")
+        rprint(f"[yellow]No FRINGE.PEAKS files found under {Path(logdir) / 'FRINGE.PEAKS'} "
+               "to summarise.[/yellow]")
         return
 
     available_width = get_console().width
     for key, per_if in groups.items():
         ifs = sorted(per_if)
-        colors = {n: _fringe_snr_color(per_if[n]) for n in ifs}
+        colors = {n: _fringe_peak_color(per_if[n]) for n in ifs}
         # Work out how many IF columns fit in the terminal so that runs with many IFs are split into
         # several tables instead of being truncated by rich.
-        value_width = max((len(f"{v:.0f}") for snr in per_if.values() for v in snr.values()), default=5)
+        value_width = max((len(_fringe_peak_cell(v)) for peaks in per_if.values() for v in peaks.values()),
+                          default=3)
         col_width = max(value_width, max(len(f"IF{n}") for n in ifs)) + 2
         pol_width = max(len(pol) for pol in _FRINGE_POLS) + 2
         per_table = max(1, (available_width - pol_width - 2) // col_width)
         for first in range(0, len(ifs), per_table):
             chunk = ifs[first:first + per_table]
-            table = Table(title=f"PolConvert fringe SNR  ·  {key.replace('_', ' ')}",
+            table = Table(title=f"PolConvert norm. fringe peaks (x100)  ·  {key.replace('_', ' ')}",
                           title_style='bold', header_style='bold', box=box.SIMPLE_HEAD)
             table.add_column('Pol', justify='left', no_wrap=True)
             for n in chunk:
@@ -273,13 +319,12 @@ def print_fringe_snr_table(logdir='polconvert_logs'):
             for pol in _FRINGE_POLS:
                 row = [pol]
                 for n in chunk:
-                    value = per_if[n].get(pol)
-                    cell = '-' if value is None else f"{value:.0f}"
+                    cell = _fringe_peak_cell(per_if[n].get(pol))
                     row.append(f"[{colors[n]}]{cell}[/{colors[n]}]")
                 table.add_row(*row)
             rprint(table)
 
-    rprint("[dim]colour per IF:  [green]green[/green] (RR+LL) > 2×(RL+LR)   "
+    rprint(f"[dim]colour per IF:  [green]green[/green] (RR+LL) ≥ {GOOD_PEAK_RATIO:g}×(RL+LR)   "
            "[dark_orange]orange[/dark_orange] (RR+LL) > (RL+LR)   "
            "[red]red[/red] otherwise[/dim]")
 
@@ -316,7 +361,7 @@ if __name__ == '__main__':
     # Mandatory keys in the input file
     must_keys = {'inputs': ['ref_idi', 'idi_files', 'linants', 'refant', 'exclude_ants', 'exclude_baselines'],
                  'options': ['time_range', 'chanavg', 'timeavg', 'solve_weight', 'to_compute', 'to_apply',
-                             'solve_amp'],
+                             'solve_amp', 'out_gainfile', 'gainfiles'],
                  'config': ['suffix', 'logdir']}
 
     for akey in must_keys:
@@ -370,6 +415,7 @@ if __name__ == '__main__':
     assert os.path.isfile(args['inputs']['ref_idi']), \
            f"The reference FITS-IDI file {args['inputs']['ref_idi']} does not exist or cannot be found."
 
+
     if arguments.compute and arguments.apply:
         args['options']['to_compute'] = True
         args['options']['to_apply'] = True
@@ -380,6 +426,14 @@ if __name__ == '__main__':
         args['options']['to_compute'] = False
         args['options']['to_apply'] = True
 
+    if args['options']['to_compute']:
+        assert isinstance(args['options']['out_gainfile'], str) and args['options']['out_gainfile'].strip() != '', \
+                "The 'out_gainfile' parameter should define a file name (output file to store the computed gains)."
+
+    if args['options']['to_apply']:
+        assert isinstance(args['options']['gainfiles'], list) and len(args['options']['gainfiles']) > 0, \
+                "The 'gainfiles' parameter should define a list of file name (files with the gains to be applied)."
+
     # Ready to go!
     main(ref_idi=args['inputs']['ref_idi'], idi_files=args['inputs']['idi_files'],
          linear_antennas=args['inputs']['linants'], ref_antenna=args['inputs']['refant'],
@@ -389,4 +443,5 @@ if __name__ == '__main__':
          solve_weight=args['options']['solve_weight'], solve_amp=args['options']['solve_amp'],
          to_compute=args['options']['to_compute'], to_apply=args['options']['to_apply'],
          suffix=args['config']['suffix'], logdir=args['config']['logdir'], useRates=args['options']['use_rates'],
-         useDelays=args['options']['use_delays'])
+         useDelays=args['options']['use_delays'], out_gainfile=args['options']['out_gainfile'],
+         gainfiles=args['options']['gainfiles'])
